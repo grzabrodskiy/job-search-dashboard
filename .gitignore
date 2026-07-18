@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# OS / editor cruft
+.DS_Store
+*.tmp
+
+# ── Private candidate identity (PII) — NEVER commit ──
+config/candidate.json
+
+# ── Private job-search data & generated outputs ──
+# Real trackers are ignored; only the *.example.json seeds are committed.
+tracking/*.json
+!tracking/*.example.json
+
+# Generated reports and agent run logs (keep the dir, ignore contents)
+reports/*
+!reports/.gitkeep
+
+# Generated cover letters / form answers (keep the dir, ignore contents)
+cover_letters/*
+!cover_letters/.gitkeep
+
+# ── Personal agent memory (keep README + shared protocols) ──
+memory/agent_memory.md
+memory/agent_memory_archive.md
+memory/search_history.md
+memory/coordination_board.md
+memory/improvements.md
+
+# ── Local, machine-specific config ──
+.claude/settings.local.json

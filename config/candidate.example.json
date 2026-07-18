@@ -1,0 +1,21 @@
+{
+  "displayName": "Amber",
+  "fullName": "Amber Russian Gold",
+  "phone": "+44 7700 900123",
+  "emails": ["amber.russiangold@example.com", "amber.russiangold.jobs@example.com"],
+  "linkedin": "linkedin.com/in/amberrussiangold",
+  "cvPath": "../CVs/Amber Russian Gold CV.pdf",
+  "currentEmployer": "Acme Financial",
+  "currentEmployerExclusion": "Do NOT use the current employer's internal mobility/careers platform (requires employee login). Roles at the current employer in scope locations are fine as standard external applications. Do NOT surface the candidate's own current role or team.",
+  "monitoredInbox": "jobsearch.monitor@example.com",
+  "appTitle": "Job Search Dashboard",
+  "profile": "Amber Russian Gold — Senior Software Engineer at Acme Financial, London (2018–present). 7+ years building large-scale distributed backend systems, real-time data pipelines, and internal platforms. AI/LLM: shipped an internal agentic assistant and LLM-based triage. Full-stack: Java, Python, TypeScript/JavaScript, React, Kafka, PostgreSQL, AWS. BSc Computer Science. EU citizen, relocating from London to Berlin.",
+  "searchBrief": {
+    "targetRoles": "Senior/Staff Software Engineer (backend, distributed systems); Platform Engineer; Applied AI / Forward Deployed Engineer",
+    "targetLocations": "Berlin > Munich > Amsterdam > Zurich > remote (EU)",
+    "levelFilter": "Senior/Staff/Principal/EM",
+    "strongLanguages": "Java, Python, JavaScript/TypeScript (Go OK)",
+    "weakLanguages": "C++, Rust (downgrade roles demanding these at hard senior depth with no ramp-up)",
+    "sponsorship": "EU citizen — no visa sponsorship required within the EU/EEA."
+  }
+}

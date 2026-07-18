@@ -1,0 +1,57 @@
+{
+  "_README": "Config for fetch_ats.mjs. Each source pulls live postings from an employer's ATS JSON API (NOT HTML scraping), so it is not bot-blocked the way WebFetch is. Add employers here as their ATS slug is confirmed. Supported providers: greenhouse, lever, ashby, smartrecruiters, workday, google. Slugs are the account name in the ATS URL (e.g. job-boards.greenhouse.io/<slug>, jobs.lever.co/<slug>, jobs.ashbyhq.com/<slug>, jobs.smartrecruiters.com/<slug>). For workday set slug to '<tenant>/<site>' and host to the *.myworkdayjobs.com host. For google omit slug and instead set 'locations' (array of 'City, Country') and 'queries' (array of search terms).",
+  "locationFilters": [
+    "zurich", "zürich", "zuerich", "zug", "geneva", "genève", "geneve",
+    "basel", "bern", "lausanne", "lugano", "winterthur", "gland",
+    "st. gallen", "st gallen", "sankt gallen",
+    "switzerland", "schweiz", "suisse", "(ch)", ", ch",
+    "munich", "münchen", "muenchen", "paris", "remote - europe", "remote, europe", "emea"
+  ],
+  "titleIncludes": [
+    "engineer", "developer", "architect", "staff software", "principal engineer",
+    "quant", "software", "platform engineer", "machine learning", "ml engineer",
+    "tech lead", "engineering lead", "engineering manager", "vp engineering", "head of engineering"
+  ],
+  "titleExcludes": [
+    "intern", "internship", "graduate", "apprentice", "working student", "praktikum", "thesis",
+    "sales", "recruiter", "recruiting", "marketing", "account executive", "account manager",
+    "account management", "designer", "ios", "android", "mobile",
+    "store", "boutique", "retail", "brand", "partnerships", "buyer", "merchandis",
+    "customer success", "procurement", "logistics", "supply chain", "store leader"
+  ],
+  "_TODO": "BUY-SIDE / PRIVATE-BANK COVERAGE (2026-07 audit found near-zero asset-mgr/PE/commodity/family-office coverage). ADDED this pass (verified live): Squarepoint (GH squarepointcapital, has Geneva/Swiss roles), Point72 (GH point72, Geneva desk), Schonfeld/DRW/Jump (GH, mostly London so location filter drops most — kept for occasional Geneva/Paris/EU roles), Vitol (SmartRecruiters, Geneva eng roles open). HIGHEST-VALUE NEXT (real Swiss eng footprint): commodity traders Glencore (Zug), Trafigura (Workday trafigura.wd3.myworkdayjobs.com — tenant/site TBD), Gunvor/Mercuria (Geneva); Swiss private banks/AM Pictet, Lombard Odier, UBP, EFG (Geneva; custom/Workday tenants TBD), Partners Group (Zug PE). Greenhouse 404s (custom/other ATS, need web-search route): Citadel, Two Sigma, Balyasny, HRT, Verition, Millennium (mlp.com custom), Man Group, Brevan Howard, Marshall Wace. Family offices (LGT, Rothschild, Stonehage Fleming) rarely post publicly — route via web search, not ATS. STILL OPEN: CFM (jobs.cfm.com non-standard), UBS (Brassring partnerid=26059), JPMorgan (Oracle Cloud), Swiss Re (Cloudflare-walled), Zurich Insurance (custom), Avaloq (ATS unknown), Vontobel Workday (tenant unknown). Keep extending from employers/prospective_employers.md. Current employer (see config/candidate.json): use EXTERNAL public postings only; do NOT build an adapter for its internal-mobility platform (employee-auth, out of scope).",
+  "sources": [
+    { "company": "Google", "category": "Tech / AI", "provider": "google", "locations": ["Zurich, Switzerland", "Geneva, Switzerland", "Munich, Germany", "Paris, France"], "queries": ["software engineer", "staff software engineer", "applied AI engineer", "forward deployed engineer"] },
+    { "company": "Qube Research & Technologies (QRT)", "category": "Hedge Funds", "provider": "greenhouse", "slug": "quberesearchandtechnologies" },
+    { "company": "Helsing", "category": "Tech / AI", "provider": "greenhouse", "slug": "helsing" },
+    { "company": "Datadog", "category": "Tech / AI", "provider": "greenhouse", "slug": "datadog" },
+    { "company": "Databricks", "category": "Tech / AI", "provider": "greenhouse", "slug": "databricks" },
+    { "company": "Celonis", "category": "Tech / AI", "provider": "greenhouse", "slug": "celonis" },
+    { "company": "Anthropic", "category": "Tech / AI", "provider": "greenhouse", "slug": "anthropic" },
+    { "company": "Scandit", "category": "Tech / AI", "provider": "greenhouse", "slug": "scandit" },
+    { "company": "Ledgy", "category": "Tech / AI", "provider": "greenhouse", "slug": "ledgy" },
+    { "company": "On (On Running)", "category": "Tech / AI", "provider": "greenhouse", "slug": "onrunning" },
+    { "company": "Proton", "category": "Tech / AI", "provider": "greenhouse", "slug": "proton" },
+    { "company": "21Shares", "category": "Crypto / Fintech", "provider": "greenhouse", "slug": "21shares" },
+    { "company": "Snap Inc.", "category": "Tech / AI", "provider": "greenhouse", "slug": "snap" },
+    { "company": "Mistral AI", "category": "Tech / AI", "provider": "ashby", "slug": "mistral.ai" },
+    { "company": "Amazon RIVR", "category": "Tech / AI", "provider": "lever", "slug": "rivr" },
+    { "company": "SonarSource", "category": "Tech / AI", "provider": "lever", "slug": "sonarsource" },
+    { "company": "Frontify", "category": "Tech / AI", "provider": "lever", "slug": "frontify" },
+    { "company": "DeepJudge", "category": "Tech / AI", "provider": "ashby", "slug": "deepjudge" },
+    { "company": "OpenAI", "category": "Tech / AI", "provider": "ashby", "slug": "openai" },
+    { "company": "Cohere", "category": "Tech / AI", "provider": "ashby", "slug": "cohere" },
+    { "company": "Swissquote", "category": "Crypto / Fintech", "provider": "smartrecruiters", "slug": "Swissquote" },
+    { "company": "Deutsche Bank", "category": "Banks", "provider": "workday", "slug": "db/DBWebsite", "host": "db.wd3.myworkdayjobs.com", "queries": ["Zurich", "Geneva", "Basel", "Zug", "Munich", "Paris"] },
+    { "company": "Julius Baer", "category": "Private Banks", "provider": "workday", "slug": "juliusbaer/External", "host": "juliusbaer.wd3.myworkdayjobs.com", "queries": ["Zurich", "Geneva", "Basel", "Zug"] },
+    { "company": "Morgan Stanley", "category": "Banks", "provider": "workday", "slug": "ms/External", "host": "ms.wd5.myworkdayjobs.com", "queries": ["Zurich", "Geneva", "Munich", "Paris"] },
+    { "company": "BlackRock", "category": "Asset Managers", "provider": "workday", "slug": "blackrock/BlackRock_Professional", "host": "blackrock.wd1.myworkdayjobs.com", "queries": ["Zurich", "Geneva", "Munich", "Paris"] },
+    { "company": "Swiss Life", "category": "Insurance", "provider": "workday", "slug": "swisslife/Swiss_Life_Career_Site", "host": "swisslife.wd3.myworkdayjobs.com", "queries": ["Zurich", "Zug", "Geneva", "Basel"] },
+    { "company": "Squarepoint Capital", "category": "Hedge Funds", "provider": "greenhouse", "slug": "squarepointcapital" },
+    { "company": "Point72", "category": "Hedge Funds", "provider": "greenhouse", "slug": "point72" },
+    { "company": "Schonfeld", "category": "Hedge Funds", "provider": "greenhouse", "slug": "schonfeld" },
+    { "company": "DRW", "category": "Hedge Funds", "provider": "greenhouse", "slug": "drweng" },
+    { "company": "Jump Trading", "category": "Hedge Funds", "provider": "greenhouse", "slug": "jumptrading" },
+    { "company": "Vitol", "category": "Commodity Trading", "provider": "smartrecruiters", "slug": "Vitol" }
+  ]
+}

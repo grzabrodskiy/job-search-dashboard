@@ -1,0 +1,20 @@
+{
+  "_README": "Config for fetch_browser.mjs — bot-blocked employers whose own career sites (and clean ATS APIs) cannot be read by plain HTTP (UBS Brassring 403s even headless; Swiss Re behind Cloudflare; Zurich Insurance custom). For each: a headless browser tries the DIRECT employer site first; if that yields nothing it falls back to the jobs.ch AGGREGATOR, filtered to that exact company. Aggregator-sourced roles are clearly marked (aggregator:true, linkStatus SEARCH, a verify note) per the family rule: direct first, aggregator only as fallback, always labelled. Title/location filters are reused from ats_sources.json (single source of truth).",
+  "sources": [
+    {
+      "company": "UBS",
+      "direct": { "url": "https://www.ubs.com/global/en/careers/search-jobs.html", "jobLinkPattern": "jobs\\.ubs\\.com/.+(Job|job)/" },
+      "aggregator": { "term": "UBS", "locations": ["Zurich", "Geneva", "Basel", "Zug"], "companyMatch": "\\bUBS\\b" }
+    },
+    {
+      "company": "Swiss Re",
+      "direct": { "url": "https://www.swissre.com/careers/jobSearch.html", "jobLinkPattern": "/careers/job/" },
+      "aggregator": { "term": "Swiss Re", "locations": ["Zurich"], "companyMatch": "swiss\\s*re" }
+    },
+    {
+      "company": "Zurich Insurance",
+      "direct": { "url": "https://www.zurich.com/careers/search-and-apply", "jobLinkPattern": "/job/|/jobs/" },
+      "aggregator": { "term": "Zurich Insurance", "locations": ["Zurich"], "companyMatch": "zurich (insurance|versicherung)" }
+    }
+  ]
+}

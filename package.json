@@ -1,0 +1,16 @@
+{
+  "name": "job-search-dashboard",
+  "version": "1.0.0",
+  "description": "A local, agent-driven job-search dashboard: curate ATS harvests, track applications, and run Claude/Codex search sessions.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dashboard": "node dashboard/server.mjs",
+    "harvest": "node dashboard/scripts/fetch_ats.mjs",
+    "harvest:browser": "node dashboard/scripts/fetch_browser.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}

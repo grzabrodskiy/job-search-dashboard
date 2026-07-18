@@ -1,0 +1,7 @@
+interface:
+  display_name: "Job Search"
+  short_description: "Run and track the candidate's job search (profile in config/candidate.json)"
+  default_prompt: "Use $job-search to find current senior engineering roles in the candidate's target locations and update the trackers."
+
+policy:
+  allow_implicit_invocation: true

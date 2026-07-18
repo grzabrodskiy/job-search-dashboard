@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Job Search Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <h1 id="appTitle">Job Search</h1>
+        <p id="metaLine">Loading…</p>
+      </div>
+      <div class="actions">
+        <button id="phoneCopy" class="phone" data-phone="" title="Click to copy the candidate's phone number" hidden>📋</button>
+        <button id="runClaudeButton" title="Run Claude solo: harvest ATS → update email → search/curate → self-review. Independent of Codex.">▶ Run Claude</button>
+        <button id="runCodexButton" title="Run Codex solo: harvest ATS → update email → search/curate → self-review. Independent of Claude.">▶ Run Codex</button>
+        <span id="saveStatus" class="save-status" aria-live="polite">Saved</span>
+      </div>
+    </header>
+
+    <main>
+      <nav class="tabs" role="tablist" aria-label="Views">
+        <button class="tab active" data-tab="best">★ Best jobs</button>
+        <button class="tab" data-tab="all">All roles</button>
+        <button class="tab" data-tab="applications">Applications</button>
+        <button class="tab" data-tab="summary">Latest run</button>
+        <button class="tab" data-tab="requests">Activity</button>
+      </nav>
+
+      <section id="summary" class="summary"></section>
+
+      <section class="controls">
+        <label class="control grow">
+          <span>Search</span>
+          <input id="textFilter" type="search" placeholder="Company, role, ID, location, comment…">
+        </label>
+        <label class="control">
+          <span>Status</span>
+          <select id="statusFilter"></select>
+        </label>
+        <label class="control">
+          <span>Priority</span>
+          <select id="priorityFilter">
+            <option value="">All</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+        </label>
+        <label class="control">
+          <span>Location</span>
+          <select id="locationFilter">
+            <option value="">All</option>
+            <option value="swiss">Swiss only</option>
+            <option value="other">Non-Swiss</option>
+          </select>
+        </label>
+        <label class="control">
+          <span>Peer reviewed</span>
+          <select id="peerFilter">
+            <option value="">All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label class="control">
+          <span>Sort</span>
+          <select id="sortControl">
+            <option value="newest">Newest first</option>
+            <option value="best">Best match</option>
+            <option value="company">Company</option>
+          </select>
+        </label>
+      </section>
+
+      <section id="content" class="content"></section>
+    </main>
+
+    <div id="clModal" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-head">
+          <h2 id="clTitle">Cover letter</h2>
+          <button id="clClose" class="modal-x" title="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="cl-config">
+            <p id="clHint" class="cl-hint"></p>
+            <div id="clParagraphsSection">
+              <label class="cl-field"><span>Cover letter length (paragraphs)</span><input id="clParagraphs" type="number" min="1" max="8" value="3"></label>
+            </div>
+            <div id="clQuestionsSection">
+              <div id="clQuestions" class="cl-questions"></div>
+              <button id="clAddQ" class="tiny">+ Add question</button>
+            </div>
+            <label class="cl-field"><span>Extra instructions (optional)</span><input id="clNotes" type="text" placeholder="e.g. emphasise AI/agentic work; keep it concise"></label>
+            <div class="cl-actions">
+              <button id="clGenerate" class="primary">Generate</button>
+              <span id="clStatus" class="cl-status"></span>
+            </div>
+          </div>
+          <div class="cl-result-wrap">
+            <label class="cl-field"><span>Result (edit before exporting)</span>
+              <textarea id="clResult" class="cl-result" rows="16" placeholder="The generated cover letter will appear here. You can edit it before copying or downloading."></textarea>
+            </label>
+            <div class="cl-actions">
+              <button id="clCopy" disabled>📋 Copy</button>
+              <button id="clSave" disabled>💾 Save</button>
+              <button id="clPdf" disabled>⬇ Download PDF</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="runModal" class="modal-overlay hidden">
+      <div class="modal modal-narrow">
+        <div class="modal-head">
+          <h2 id="runTitle">Run agent</h2>
+          <button id="runClose" class="modal-x" title="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="cl-hint">Solo run: harvest ATS → update email from replies → search &amp; curate new roles → self-review. Runs independently of the other agent.</p>
+          <div class="run-grid">
+            <label class="cl-field"><span>Model</span><select id="runModelSel"></select></label>
+            <label class="cl-field"><span>Thinking level</span><select id="runEffortSel"></select></label>
+          </div>
+          <p id="runModelEnv" class="cfg-env hidden">A model/effort environment variable is overriding this at run time; the dropdowns won't take effect until it is unset.</p>
+          <div class="run-steps">
+            <span class="run-steps-label">Steps to run (uncheck to skip)</span>
+            <label class="run-check"><input id="runStepSearch" type="checkbox" checked><span>Search for new roles</span></label>
+            <label class="run-check"><input id="runStepVerify" type="checkbox" checked><span>Re-verify existing roles</span></label>
+            <label class="run-check"><input id="runStepEmail" type="checkbox" checked><span>Check email for recruiter replies</span></label>
+            <label class="run-check"><input id="runStepReview" type="checkbox" checked><span>Self-review new finds</span></label>
+          </div>
+          <label class="run-check">
+            <input id="runMunichParis" type="checkbox">
+            <span><b>Extend search to Munich &amp; Paris.</b> Leave unchecked to search Switzerland only (default).</span>
+          </label>
+          <label class="cl-field"><span>Focus for this run (optional)</span>
+            <input id="runNotes" type="text" placeholder="e.g. Geneva commodity traders &amp; private banks; only AI/agentic roles">
+          </label>
+          <div class="cl-actions">
+            <button id="runStart" class="primary">▶ Start run</button>
+            <span id="runStatus" class="cl-status"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

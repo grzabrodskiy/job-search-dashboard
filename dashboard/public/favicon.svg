@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Orange cat face, for easy tab recognition -->
+  <!-- ears -->
+  <path d="M14 18 L20 4 L30 16 Z" fill="#F57C20"/>
+  <path d="M50 18 L44 4 L34 16 Z" fill="#F57C20"/>
+  <path d="M17 16 L20.5 8 L25.5 14 Z" fill="#F9B27A"/>
+  <path d="M47 16 L43.5 8 L38.5 14 Z" fill="#F9B27A"/>
+  <!-- head -->
+  <ellipse cx="32" cy="36" rx="22" ry="20" fill="#F57C20"/>
+  <!-- tabby stripes -->
+  <path d="M32 17 v9 M26 18 l2 8 M38 18 l-2 8" stroke="#D2620E" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <!-- eyes -->
+  <ellipse cx="23" cy="35" rx="4.2" ry="5.2" fill="#fff"/>
+  <ellipse cx="41" cy="35" rx="4.2" ry="5.2" fill="#fff"/>
+  <ellipse cx="23" cy="35.5" rx="2" ry="4" fill="#2b2b2b"/>
+  <ellipse cx="41" cy="35.5" rx="2" ry="4" fill="#2b2b2b"/>
+  <!-- nose + mouth -->
+  <path d="M29 44 L35 44 L32 47 Z" fill="#E0556B"/>
+  <path d="M32 47 v3 M32 50 q-3 2 -6 0 M32 50 q3 2 6 0" stroke="#7a3a10" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+  <!-- whiskers -->
+  <path d="M22 43 H8 M23 46 L10 49 M42 43 H56 M41 46 L54 49" stroke="#7a3a10" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+</svg>
