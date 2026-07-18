@@ -5,6 +5,11 @@ node_modules/
 .DS_Store
 *.tmp
 
+# Scratch / throwaway agent helper scripts (e.g. tmp_curate.mjs, "delete after run")
+tmp_*.mjs
+tmp_*.js
+/scratch/
+
 # ── Private candidate identity (PII) — NEVER commit ──
 config/candidate.json
 
