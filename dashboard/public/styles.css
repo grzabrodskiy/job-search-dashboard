@@ -126,6 +126,9 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 24px 64px; }
 .control { display: flex; flex-direction: column; gap: 4px; }
 .control.grow { flex: 1 1 280px; }
 .control span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.chk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 7px 0 6px; }
+.chk { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text); cursor: pointer; white-space: nowrap; }
+.chk input[type="checkbox"] { width: 15px; height: 15px; padding: 0; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
 .control input, .control select {
   font: inherit;
   background: var(--panel);

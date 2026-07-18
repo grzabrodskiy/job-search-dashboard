@@ -41,23 +41,20 @@
           <span>Status</span>
           <select id="statusFilter"></select>
         </label>
-        <label class="control">
+        <div class="control">
           <span>Priority</span>
-          <select id="priorityFilter">
-            <option value="">All</option>
-            <option value="HIGH">High</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="LOW">Low</option>
-          </select>
-        </label>
-        <label class="control">
+          <div class="chk-row">
+            <label class="chk"><input type="checkbox" id="priHigh" value="HIGH">High</label>
+            <label class="chk"><input type="checkbox" id="priMed" value="MEDIUM">Medium</label>
+            <label class="chk"><input type="checkbox" id="priLow" value="LOW">Low</label>
+          </div>
+        </div>
+        <div class="control">
           <span>Location</span>
-          <select id="locationFilter">
-            <option value="">All</option>
-            <option value="swiss">Swiss only</option>
-            <option value="other">Non-Swiss</option>
-          </select>
-        </label>
+          <div class="chk-row">
+            <label class="chk"><input type="checkbox" id="locSwiss">Swiss only</label>
+          </div>
+        </div>
         <label class="control">
           <span>Peer reviewed</span>
           <select id="peerFilter">

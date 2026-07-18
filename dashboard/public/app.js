@@ -1,5 +1,6 @@
 let data = null;
 let requests = null;
+let searchedCompaniesLive = null;
 let activeTab = "best";
 let summaryFilter = null;
 let companyStats = new Map(); // company (lowercase) -> { applied, rejected }
@@ -10,8 +11,10 @@ const metaLine = document.querySelector("#metaLine");
 const controls = document.querySelector(".controls");
 const textFilter = document.querySelector("#textFilter");
 const statusFilter = document.querySelector("#statusFilter");
-const priorityFilter = document.querySelector("#priorityFilter");
-const locationFilter = document.querySelector("#locationFilter");
+const priHigh = document.querySelector("#priHigh");
+const priMed = document.querySelector("#priMed");
+const priLow = document.querySelector("#priLow");
+const locSwiss = document.querySelector("#locSwiss");
 const peerFilter = document.querySelector("#peerFilter");
 const sortControl = document.querySelector("#sortControl");
 const saveStatus = document.querySelector("#saveStatus");
@@ -170,24 +173,24 @@ function filteredRoles() {
     const term = textFilter.value.trim().toLowerCase();
     const status = statusFilter.value;
     const peer = peerFilter.value;
-    const priority = priorityFilter.value;
-    const location = locationFilter.value;
+    const prios = [priHigh.checked && "HIGH", priMed.checked && "MEDIUM", priLow.checked && "LOW"].filter(Boolean);
+    const swissOnly = locSwiss.checked;
     rows = rows.filter((role) => {
       if (term && !rowText(role).includes(term)) return false;
       if (!matchesSummaryFilter(role)) return false;
       if (status && computeStatus(role) !== status) return false;
-      if (priority && role.priority !== priority) return false;
-      if (location === "swiss" && !isSwiss(role.location)) return false;
-      if (location === "other" && isSwiss(role.location)) return false;
+      if (prios.length && !prios.includes(role.priority)) return false;
+      if (swissOnly && !isSwiss(role.location)) return false;
       if (peer === "yes" && !role.peerReviewed) return false;
       if (peer === "no" && role.peerReviewed) return false;
       return true;
     });
     const sort = sortControl.value;
-    const byDate = (a, b) => String(b.lastUpdate || b.createdDate || "").localeCompare(String(a.lastUpdate || a.createdDate || ""));
-    if (sort === "newest") rows = [...rows].sort(byDate);
-    else if (sort === "company") rows = [...rows].sort((a, b) => String(a.company).localeCompare(String(b.company)) || byDate(a, b));
-    else rows = [...rows].sort((a, b) => roleScore(b) - roleScore(a) || byDate(a, b));
+    // "Newest" sorts by createdDate (the date shown on each row); the others fall back to it.
+    const byCreated = (a, b) => String(b.createdDate || b.lastUpdate || "").localeCompare(String(a.createdDate || a.lastUpdate || ""));
+    if (sort === "newest") rows = [...rows].sort(byCreated);
+    else if (sort === "company") rows = [...rows].sort((a, b) => String(a.company).localeCompare(String(b.company)) || byCreated(a, b));
+    else rows = [...rows].sort((a, b) => roleScore(b) - roleScore(a) || byCreated(a, b));
   } else {
     rows = [...rows].sort((a, b) => String(b.appliedDate || b.lastUpdate || "").localeCompare(String(a.appliedDate || a.lastUpdate || "")));
   }
@@ -514,12 +517,25 @@ function renderRunSummary() {
   const hasSnapshot = (r) => Array.isArray(r.searchedCompanies) && r.searchedCompanies.length;
   const searchedReq = (latest?.requestId && reqRows.find((r) => r.id === latest.requestId && hasSnapshot(r)))
     || reqRows.find(hasSnapshot) || null;
-  const searched = searchedReq?.searchedCompanies || null;
+  const searched = searchedReq?.searchedCompanies || searchedCompaniesLive || null;
   const searchedCount = searched ? searched.reduce((n, g) => n + g.companies.length, 0) : 0;
+  // A searched company "has results" if any tracked role matches its (normalized) name.
+  const normCo = (s) => String(s || "").toLowerCase().replace(/\(.*?\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+  const roleCoKeys = (data.roles || []).map((r) => normCo(r.company)).filter(Boolean);
+  const companyHasResults = (name) => {
+    const n = normCo(name);
+    if (!n) return false;
+    const first = n.split(" ")[0];
+    return roleCoKeys.some((rk) => rk === n || rk.startsWith(n) || n.startsWith(rk) || (first.length >= 4 && rk.split(" ")[0] === first));
+  };
+  const withResults = searched ? searched.reduce((acc, g) => acc + g.companies.filter(companyHasResults).length, 0) : 0;
   const searchedSection = searched ? `
-      <div class="run-section"><h3 class="run-h">🔎 Companies searched (${searchedCount})</h3>
-        ${searched.map((g) => `<p class="searched-cat"><span class="searched-cat-name">${escapeHtml(g.category)}:</span> ${escapeHtml(g.companies.join(", "))}</p>`).join("")}
-        <p class="small muted">Employers pulled from their ATS every run (whether or not they had matching roles). The agent may also web-search other firms.</p>
+      <div class="run-section"><h3 class="run-h">🔎 Companies searched (${searchedCount}) &middot; ${withResults} with results</h3>
+        ${searched.map((g) => {
+          const items = g.companies.map((c) => companyHasResults(c) ? `<b>${escapeHtml(c)}</b>` : escapeHtml(c)).join(", ");
+          return `<p class="searched-cat"><span class="searched-cat-name">${escapeHtml(g.category)}:</span> ${items}</p>`;
+        }).join("")}
+        <p class="small muted"><b>Bold</b> = has at least one role in the tracker; the rest were searched but returned no matching roles. These are the ATS-harvested employers; the agent may also web-search other firms.</p>
       </div>` : "";
   // Earlier runs: deduplicate by requestId (removes same-run multi-step duplicates),
   // drop empty entries, cap at 8.
@@ -683,6 +699,7 @@ async function load() {
   const bundle = await (await fetch("/api/data")).json();
   data = bundle.data;
   requests = bundle.requests;
+  searchedCompaniesLive = bundle.searchedCompanies || null;
   applyCandidate(bundle.candidate);
   buildCompanyStats();
   render();
@@ -829,8 +846,7 @@ summary.addEventListener("click", (e) => {
 });
 textFilter.addEventListener("input", render);
 statusFilter.addEventListener("change", () => { summaryFilter = null; render(); });
-priorityFilter.addEventListener("change", render);
-locationFilter.addEventListener("change", render);
+[priHigh, priMed, priLow, locSwiss].forEach((cb) => cb.addEventListener("change", render));
 peerFilter.addEventListener("change", render);
 sortControl.addEventListener("change", render);
 runClaudeButton?.addEventListener("click", () => openRunModal("claude"));

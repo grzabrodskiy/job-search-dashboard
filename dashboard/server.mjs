@@ -333,7 +333,10 @@ async function loadBundle() {
   });
   const c = await loadCandidate();
   const candidate = { appTitle: c.appTitle || "Job Search Dashboard", displayName: c.displayName || "", phone: c.phone || "" };
-  return { data, requests, candidate };
+  // Current ATS source list (grouped by industry) so the "Companies searched" view can
+  // render even for runs that predate the per-run snapshot.
+  const searchedCompanies = await searchedCompaniesByCategory();
+  return { data, requests, candidate, searchedCompanies };
 }
 
 async function saveData(data) {
