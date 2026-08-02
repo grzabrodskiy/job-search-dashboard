@@ -1,5 +1,12 @@
 {
-  "_README": "Config for fetch_ats.mjs. Each source pulls live postings from an employer's ATS JSON API (NOT HTML scraping), so it is not bot-blocked the way WebFetch is. Add employers here as their ATS slug is confirmed. Supported providers: greenhouse, lever, ashby, smartrecruiters, workday, google. Slugs are the account name in the ATS URL (e.g. job-boards.greenhouse.io/<slug>, jobs.lever.co/<slug>, jobs.ashbyhq.com/<slug>, jobs.smartrecruiters.com/<slug>). For workday set slug to '<tenant>/<site>' and host to the *.myworkdayjobs.com host. For google omit slug and instead set 'locations' (array of 'City, Country') and 'queries' (array of search terms).",
+  "_README": "Config for fetch_ats.mjs. Each source pulls live postings from an employer's ATS JSON API (NOT HTML scraping), so it is not bot-blocked the way WebFetch is. Add employers here as their ATS slug is confirmed. Supported providers: greenhouse, lever, ashby, smartrecruiters, workday, successfactors, google. Slugs are the account name in the ATS URL (e.g. job-boards.greenhouse.io/<slug>, jobs.lever.co/<slug>, jobs.ashbyhq.com/<slug>, jobs.smartrecruiters.com/<slug>). For workday set slug to '<tenant>/<site>' and host to the *.myworkdayjobs.com host. For successfactors omit slug and set 'host' to the SAP career-site host (e.g. jobs.six-group.com, careers.swissre.com) plus 'queries'; note the SF career host answers plain HTTP even when the employer's corporate marketing site is bot-walled. For google omit slug and instead set 'locations' (array of 'City, Country') and 'queries' (array of search terms).",
+  "_PRIMARY_README": "primaryLocationFilters is the TOP-TIER slice of locationFilters — the candidate's #1 target region (see searchBrief.targetLocations in config/candidate.json). fetch_ats.mjs sorts candidates[] so these come first and reports meta.primaryCount, so agents curating top-down exhaust the primary region before the backup tier. Leave it empty to disable the ordering.",
+  "primaryLocationFilters": [
+    "zurich", "zürich", "zuerich", "zug", "geneva", "genève", "geneve",
+    "basel", "bern", "lausanne", "lugano", "winterthur", "gland", "olten",
+    "st. gallen", "st gallen", "sankt gallen",
+    "switzerland", "schweiz", "suisse", "(ch)", ", ch"
+  ],
   "locationFilters": [
     "zurich", "zürich", "zuerich", "zug", "geneva", "genève", "geneve",
     "basel", "bern", "lausanne", "lugano", "winterthur", "gland",
@@ -19,6 +26,7 @@
     "store", "boutique", "retail", "brand", "partnerships", "buyer", "merchandis",
     "customer success", "procurement", "logistics", "supply chain", "store leader"
   ],
+  "_NEXT_SOURCES": "Verified reachable 2026-07-26, not yet added — highest yield first: Deutsche Borse/Eurex (successfactors, careers.deutsche-boerse.com) and Pictet (successfactors, careers.pictet.com); Gunvor (workday gunvor/Gunvor_Careers @ gunvor.wd3.myworkdayjobs.com); Temenos (workday temenos/Temenoscareers @ temenos.wd103.myworkdayjobs.com); Zuhlke (workday zuehlke/Zuhlke-Careers @ zuehlke.wd3.myworkdayjobs.com); Amina Bank (personio slug 'amina' — needs a personio adapter); Smallpdf (ashby 'smallpdf'); Palantir (lever 'palantir', Paris only). VERIFIED NOT WORTH ADDING (boards live, zero Swiss/target rows): Man Group, Winton, Flow Traders, Tower Research, HRT 'hrttalentcommunity', XTX 'xtxmarketstechnologies'. STILL UNREACHABLE over plain HTTP: UBS (Brassring), Sygnum (Salesforce, 403), Vontobel (404s), Avaloq (403), Glencore/Partners Group/Mercuria (no ATS marker in careers HTML), Citadel/Two Sigma/Millennium/Balyasny (custom). To find a new employer's ATS: fetch its careers page and grep for greenhouse|lever|ashby|workday|smartrecruiters|personio|recruitee hostnames; for Workday, grep the page for the full '<tenant>.wdN.myworkdayjobs.com/<Site>' path (the tenant root does NOT redirect).",
   "_TODO": "BUY-SIDE / PRIVATE-BANK COVERAGE (2026-07 audit found near-zero asset-mgr/PE/commodity/family-office coverage). ADDED this pass (verified live): Squarepoint (GH squarepointcapital, has Geneva/Swiss roles), Point72 (GH point72, Geneva desk), Schonfeld/DRW/Jump (GH, mostly London so location filter drops most — kept for occasional Geneva/Paris/EU roles), Vitol (SmartRecruiters, Geneva eng roles open). HIGHEST-VALUE NEXT (real Swiss eng footprint): commodity traders Glencore (Zug), Trafigura (Workday trafigura.wd3.myworkdayjobs.com — tenant/site TBD), Gunvor/Mercuria (Geneva); Swiss private banks/AM Pictet, Lombard Odier, UBP, EFG (Geneva; custom/Workday tenants TBD), Partners Group (Zug PE). Greenhouse 404s (custom/other ATS, need web-search route): Citadel, Two Sigma, Balyasny, HRT, Verition, Millennium (mlp.com custom), Man Group, Brevan Howard, Marshall Wace. Family offices (LGT, Rothschild, Stonehage Fleming) rarely post publicly — route via web search, not ATS. STILL OPEN: CFM (jobs.cfm.com non-standard), UBS (Brassring partnerid=26059), JPMorgan (Oracle Cloud), Swiss Re (Cloudflare-walled), Zurich Insurance (custom), Avaloq (ATS unknown), Vontobel Workday (tenant unknown). Keep extending from employers/prospective_employers.md. Current employer (see config/candidate.json): use EXTERNAL public postings only; do NOT build an adapter for its internal-mobility platform (employee-auth, out of scope).",
   "sources": [
     { "company": "Google", "category": "Tech / AI", "provider": "google", "locations": ["Zurich, Switzerland", "Geneva, Switzerland", "Munich, Germany", "Paris, France"], "queries": ["software engineer", "staff software engineer", "applied AI engineer", "forward deployed engineer"] },
@@ -33,7 +41,7 @@
     { "company": "On (On Running)", "category": "Tech / AI", "provider": "greenhouse", "slug": "onrunning" },
     { "company": "Proton", "category": "Tech / AI", "provider": "greenhouse", "slug": "proton" },
     { "company": "21Shares", "category": "Crypto / Fintech", "provider": "greenhouse", "slug": "21shares" },
-    { "company": "Snap Inc.", "category": "Tech / AI", "provider": "greenhouse", "slug": "snap" },
+    { "company": "IMC Trading", "category": "Hedge Funds", "provider": "greenhouse", "slug": "imc" },
     { "company": "Mistral AI", "category": "Tech / AI", "provider": "ashby", "slug": "mistral.ai" },
     { "company": "Amazon RIVR", "category": "Tech / AI", "provider": "lever", "slug": "rivr" },
     { "company": "SonarSource", "category": "Tech / AI", "provider": "lever", "slug": "sonarsource" },
@@ -52,6 +60,10 @@
     { "company": "Schonfeld", "category": "Hedge Funds", "provider": "greenhouse", "slug": "schonfeld" },
     { "company": "DRW", "category": "Hedge Funds", "provider": "greenhouse", "slug": "drweng" },
     { "company": "Jump Trading", "category": "Hedge Funds", "provider": "greenhouse", "slug": "jumptrading" },
-    { "company": "Vitol", "category": "Commodity Trading", "provider": "smartrecruiters", "slug": "Vitol" }
+    { "company": "Vitol", "category": "Commodity Trading", "provider": "smartrecruiters", "slug": "Vitol" },
+    { "company": "SIX Group", "category": "Exchanges / Market Infrastructure", "provider": "successfactors", "host": "jobs.six-group.com", "queries": ["engineer", "developer", "software", "java", "python"] },
+    { "company": "Swiss Re", "category": "Insurance", "provider": "successfactors", "host": "careers.swissre.com", "queries": ["engineer", "developer", "software", "java", "python"] },
+    { "company": "Trafigura", "category": "Commodity Trading", "provider": "workday", "slug": "trafigura/TrafiguraCareerSite", "host": "trafigura.wd3.myworkdayjobs.com", "queries": ["Geneva", "Zug", "engineer", "developer"] },
+    { "company": "Swisscom", "category": "Tech / AI", "provider": "workday", "slug": "swisscom/SwisscomExternalCareers", "host": "swisscom.wd103.myworkdayjobs.com", "queries": ["engineer", "developer", "software", "architect"] }
   ]
 }
