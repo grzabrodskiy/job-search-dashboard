@@ -25,9 +25,10 @@ const agentConfigPath = resolve(root, "tracking/agent_config.json");
 // takes effect on the next run without restarting the server. Env vars still override
 // (a power-user escape hatch); an unknown stored choice falls back to the default.
 const CLAUDE_MODELS = [
-  { value: "claude-fable-5", label: "Fable 5 (latest)" },
-  { value: "claude-opus-4-8", label: "Opus 4.8" },
+  { value: "claude-opus-5", label: "Opus 5 (most capable)" },
+  { value: "claude-fable-5", label: "Fable 5" },
   { value: "claude-sonnet-5", label: "Sonnet 5" },
+  { value: "claude-opus-4-8", label: "Opus 4.8 (previous gen)" },
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (fast)" }
 ];
 const CODEX_MODELS = [

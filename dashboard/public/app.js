@@ -397,6 +397,7 @@ function formatRunDate(value) {
 }
 
 const MODEL_SHORT = {
+  "claude-opus-5": "Opus 5",
   "claude-fable-5": "Fable 5",
   "claude-opus-4-8": "Opus 4.8",
   "claude-sonnet-5": "Sonnet 5",
