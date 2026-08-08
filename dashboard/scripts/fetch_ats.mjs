@@ -502,12 +502,17 @@ async function fetchGoldman(source) {
       if (!r.roleId || byId.has(r.roleId)) continue;
       if (/closed|filled|inactive/i.test(String(r.status ?? ""))) continue;
       const c = r.compensation ?? {};
+      // The public role page is keyed by the NUMERIC requisition id, not by roleId.
+      // higher.gs.com/roles/161025 renders the posting; the roleId form
+      // (161025_GS_MID_CAREER) returns HTTP 200 with an empty SPA shell, so it looks
+      // fine to a status-code check and is a dead link to a human.
+      const sourceId = String(r.externalSource?.sourceId || "").trim() || String(r.roleId).split("_")[0];
       byId.set(r.roleId, {
         role: r.jobTitle,
         // Every city, so a multi-location req can still match the location filter.
         location: (r.locations ?? []).map((l) => [l.city, l.country].filter(Boolean).join(", ")).join("; "),
-        internalId: String(r.externalSource?.sourceId || r.roleId),
-        link: `https://higher.gs.com/roles/${r.roleId}`,
+        internalId: sourceId,
+        link: `https://higher.gs.com/roles/${sourceId}`,
         description: htmlToText(r.descriptionHtml),
         comp: c.minSalary && c.maxSalary ? `${c.minSalary}-${c.maxSalary} ${c.currency ?? ""}`.trim() : ""
       });
