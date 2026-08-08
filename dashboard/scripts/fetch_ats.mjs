@@ -182,6 +182,7 @@ async function fetchSmartRecruiters(slug) {
 // ["engineer","developer"]) and page each up to WORKDAY_MAX_PAGES, unioning results.
 const WORKDAY_PAGE = 20;
 const WORKDAY_MAX_PAGES = 20;
+const WORKDAY_DETAIL_BATCH = 6;
 async function fetchWorkday(source) {
   const { slug, host } = source;
   if (!host) return { error: "workday source needs a host" };
@@ -208,14 +209,35 @@ async function fetchWorkday(source) {
           role: j.title,
           location: j.locationsText ?? "",
           internalId: String(j.bulletFields?.[0] ?? ""),
-          link: `https://${host}/en-US/${site}${j.externalPath ?? ""}`
+          link: `https://${host}/en-US/${site}${j.externalPath ?? ""}`,
+          path: j.externalPath ?? ""
         });
       }
       if (postings.length < WORKDAY_PAGE || page * WORKDAY_PAGE + postings.length >= (data.total ?? 0)) break;
     }
   }
   if (firstError) return { error: firstError };
-  return { jobs: [...byPath.values()] };
+
+  // The list endpoint omits the JD. Hydrate target-region rows from the CXS detail
+  // endpoint, which also returns `canApply` — a first-class liveness signal that is
+  // more reliable than inferring closure from harvest absence.
+  const jobs = [...byPath.values()];
+  const wanted = jobs.filter((j) => SR_LOC_HINTS.some((h) => j.location.toLowerCase().includes(h)));
+  for (let i = 0; i < wanted.length; i += WORKDAY_DETAIL_BATCH) {
+    await Promise.allSettled(
+      wanted.slice(i, i + WORKDAY_DETAIL_BATCH).map(async (j) => {
+        if (!j.path) return;
+        const { data, error } = await getJson(`https://${host}/wday/cxs/${slug}${j.path}`);
+        if (error || !data?.jobPostingInfo) return;
+        const info = data.jobPostingInfo;
+        j.description = htmlToText(info.jobDescription || "");
+        if (info.canApply === false) j.canApply = false;
+        if (info.jobReqId) j.internalId = String(info.jobReqId);
+      })
+    );
+  }
+  for (const j of jobs) delete j.path;
+  return { jobs };
 }
 
 // Google careers isn't a standard ATS. Its results page (google.com, NOT the
@@ -285,13 +307,84 @@ async function fetchGoogle(source) {
   return { jobs };
 }
 
+// SAP SuccessFactors career sites (SIX Group, Swiss Re, Deutsche Börse/Eurex, and
+// most large Swiss financial employers). The rendered search page returns 200 over
+// plain HTTP — no Cloudflare/bot wall on the `jobs.*`/`careers.*` SF host, unlike the
+// corporate marketing site. Rows carry title, requisition id and city; the detail
+// page at /job/<City-Title>/<id>/ carries the JD.
+// Source shape: { provider:"successfactors", host:"jobs.six-group.com", queries:[...] }
+const SF_PAGE = 25;
+const SF_MAX_PAGES = 8;
+const SF_DETAIL_BATCH = 6;
+async function fetchSuccessFactors(source) {
+  const { host } = source;
+  if (!host) return { error: "successfactors source needs a host" };
+  const queries = source.queries ?? ["engineer", "developer", "software"];
+  const byId = new Map();
+  let firstError = null;
+
+  for (const q of queries) {
+    for (let page = 0; page < SF_MAX_PAGES; page++) {
+      const url = `https://${host}/search/?q=${encodeURIComponent(q)}&startrow=${page * SF_PAGE}`;
+      const { data, error } = await getText(url);
+      if (error) {
+        if (page === 0 && byId.size === 0) firstError = error;
+        break;
+      }
+      // One <tr class="data-row"> per posting; take the first jobTitle-link and the
+      // jobLocation span that follows it.
+      const rows = data.split('class="data-row"').slice(1);
+      let added = 0;
+      for (const row of rows) {
+        const link = row.match(/href="([^"]*\/job\/[^"]*?(\d{5,})\/?)"[^>]*class="jobTitle-link"[^>]*>([^<]+)/);
+        if (!link) continue;
+        const [, href, id, title] = link;
+        if (byId.has(id)) continue;
+        const locMatch = row.match(/<span class="jobLocation">\s*([^<]+?)\s*</);
+        byId.set(id, {
+          role: htmlToText(title, 200),
+          location: locMatch ? locMatch[1].trim() : "",
+          internalId: id,
+          link: `https://${host}${href.startsWith("/") ? href : `/${href}`}`
+        });
+        added++;
+      }
+      if (rows.length < SF_PAGE || added === 0) break;
+    }
+  }
+  if (firstError && byId.size === 0) return { error: firstError };
+
+  // Hydrate descriptions for target-region rows only (keeps the run bounded).
+  const jobs = [...byId.values()];
+  const wanted = jobs.filter((j) => SR_LOC_HINTS.some((h) => j.location.toLowerCase().includes(h)));
+  for (let i = 0; i < wanted.length; i += SF_DETAIL_BATCH) {
+    await Promise.allSettled(
+      wanted.slice(i, i + SF_DETAIL_BATCH).map(async (j) => {
+        const { data, error } = await getText(j.link);
+        if (error || !data) return;
+        // The JD lives in a `jobdescription` div/span, but SF nests many inner
+        // elements — matching to the first closing tag truncates it. Take a
+        // generous slice from the element start and let htmlToText cap it.
+        // (The `<style>` block also mentions `.jobdescription`; requiring a real
+        // div/span tag before the class keeps us off the CSS.)
+        const start = data.search(/<(?:div|span)[^>]*class="[^"]*jobdescription[^"]*"[^>]*>/i);
+        if (start < 0) return;
+        const text = htmlToText(data.slice(start, start + 20000));
+        if (text.length > 80) j.description = text;
+      })
+    );
+  }
+  return { jobs };
+}
+
 const providers = {
   greenhouse: (s) => fetchGreenhouse(s.slug),
   lever: (s) => fetchLever(s.slug),
   ashby: (s) => fetchAshby(s.slug),
   smartrecruiters: (s) => fetchSmartRecruiters(s.slug),
   workday: (s) => fetchWorkday(s),
-  google: (s) => fetchGoogle(s)
+  google: (s) => fetchGoogle(s),
+  successfactors: (s) => fetchSuccessFactors(s)
 };
 
 function matches(job, { locationFilters, titleIncludes, titleExcludes }) {
@@ -341,7 +434,17 @@ async function main() {
         comp: j.comp || ""
       });
     }
-    sourceReport.push({ company: source.company, provider: source.provider, fetched: jobs.length, kept: kept.length });
+    // Record EVERY fetched requisition id, not just the kept ones. A tracked role
+    // that is absent from `candidates[]` but present here was filtered out (wrong
+    // city/title), NOT closed — reading filtered-absence as closure has repeatedly
+    // caused live roles to be archived by mistake.
+    sourceReport.push({
+      company: source.company,
+      provider: source.provider,
+      fetched: jobs.length,
+      kept: kept.length,
+      allInternalIds: jobs.map((j) => String(j.internalId || "")).filter(Boolean)
+    });
   }
 
   // Dedupe within this harvest on link, else company+role+internalId.
@@ -353,15 +456,31 @@ async function main() {
     return true;
   });
 
+  // Primary-region-first ordering. `primaryLocationFilters` (config) names the
+  // candidate's top-tier target region; everything else in `locationFilters` is the
+  // backup tier. Sorting here means agents curating top-down exhaust the primary
+  // region before spending budget on the backup tier. Candidate-agnostic: the terms
+  // live in ats_sources.json, never in this file.
+  const primaryFilters = (config.primaryLocationFilters ?? []).map((s) => s.toLowerCase());
+  const isPrimary = (c) => {
+    const loc = String(c.location || "").toLowerCase();
+    return primaryFilters.some((f) => loc.includes(f));
+  };
+  const ordered = primaryFilters.length
+    ? [...deduped].sort((a, b) => Number(isPrimary(b)) - Number(isPrimary(a)))
+    : deduped;
+  const primaryCount = primaryFilters.length ? ordered.filter(isPrimary).length : 0;
+
   const out = {
     meta: {
       fetchedAt: new Date().toISOString(),
       sourceCount: (config.sources ?? []).length,
-      candidateCount: deduped.length,
-      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging."
+      candidateCount: ordered.length,
+      primaryCount,
+      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis."
     },
     sourceReport,
-    candidates: deduped
+    candidates: ordered
   };
 
   await mkdir(dirname(outPath), { recursive: true });
@@ -369,7 +488,7 @@ async function main() {
 
   const ok = sourceReport.filter((s) => !s.error).length;
   console.log(
-    `ATS harvest: ${deduped.length} candidates from ${ok}/${sourceReport.length} sources -> tracking/ats_candidates.json`
+    `ATS harvest: ${ordered.length} candidates (${primaryCount} in primary region, listed first) from ${ok}/${sourceReport.length} sources -> tracking/ats_candidates.json`
   );
   for (const s of sourceReport) {
     console.log(`  ${s.error ? "✗" : "✓"} ${s.company} (${s.provider}): ${s.error ? s.error : `${s.kept}/${s.fetched} kept`}`);
