@@ -22,7 +22,27 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const TIMEOUT_MS = 25000; // higher: Greenhouse content=true returns large payloads
 const SOURCE_CONCURRENCY = 5; // sources fetched in parallel; the work is network-bound
-const JD_MAX = 2800; // cap stored job-description text so the candidate file stays reasonable
+// Job-description text. Adapters keep a generous amount at fetch time; main() then
+// clamps each row to a region-aware budget so the candidate file stays reasonable.
+// Primary-region rows get the larger budget — those are the ones agents actually
+// score in detail.
+const JD_MAX = 20000; // fetch-time ceiling, guards against pathological pages
+const JD_PRIMARY_MAX = 5000;
+const JD_BACKUP_MAX = 2800;
+const JD_ELISION = "\n\n[… middle of description elided …]\n\n";
+
+// A plain head-truncation cut off exactly what the rubric needs: required years,
+// language demands and work-authorization notes live at the END of a job ad, not the
+// start, which is company boilerplate. Agents flagged this in three consecutive run
+// summaries ("late qualification blocks can remain truncated"). Keep the opening AND
+// the closing of a long description and drop the middle instead.
+function clampJd(text, max) {
+  const t = String(text || "");
+  if (t.length <= max) return t;
+  const budget = max - JD_ELISION.length;
+  const head = Math.floor(budget * 0.55);
+  return t.slice(0, head) + JD_ELISION + t.slice(-(budget - head));
+}
 
 // Convert (possibly entity-escaped) HTML to trimmed plain text, capped at JD_MAX.
 // Greenhouse `content` is HTML-escaped HTML, so we decode entities, strip tags,
@@ -589,13 +609,19 @@ async function main() {
     : deduped;
   const primaryCount = primaryFilters.length ? ordered.filter(isPrimary).length : 0;
 
+  // Clamp descriptions only now that primary/backup is known, so top-region rows keep
+  // more of their text than the backup tier.
+  for (const c of ordered) {
+    c.description = clampJd(c.description, isPrimary(c) ? JD_PRIMARY_MAX : JD_BACKUP_MAX);
+  }
+
   const out = {
     meta: {
       fetchedAt: new Date().toISOString(),
       sourceCount: (config.sources ?? []).length,
       candidateCount: ordered.length,
       primaryCount,
-      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis."
+      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis. `description` keeps the START and the END of the job ad; a long one has its MIDDLE replaced by '[… middle of description elided …]'. The end is preserved deliberately, because required years, language demands and work-authorization notes live there — so judge level/language/permit from the text AFTER the marker, and treat the marker as elided boilerplate, not as a missing requirement."
     },
     sourceReport,
     candidates: ordered
