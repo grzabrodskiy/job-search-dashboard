@@ -416,6 +416,21 @@
       "category": "Tech / Deep-tech",
       "provider": "lever",
       "slug": "zurichinstruments"
+    },
+    {
+      "company": "Temenos",
+      "category": "Banks",
+      "provider": "workday",
+      "slug": "temenos/Temenoscareers",
+      "host": "temenos.wd103.myworkdayjobs.com",
+      "queries": [
+        "Geneva",
+        "Zurich",
+        "Lausanne",
+        "Switzerland",
+        "Munich",
+        "Paris"
+      ]
     }
   ]
 }
