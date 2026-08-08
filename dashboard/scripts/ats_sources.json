@@ -538,6 +538,38 @@
       "queries": [
         ""
       ]
+    },
+    {
+      "company": "Goldman Sachs",
+      "category": "Banks",
+      "provider": "goldman",
+      "host": "api-higher.gs.com",
+      "experiences": [
+        "PROFESSIONAL"
+      ],
+      "locationFilters": [
+        "switzerland",
+        "united kingdom",
+        "ireland",
+        "france",
+        "germany",
+        "netherlands",
+        "belgium",
+        "luxembourg",
+        "italy",
+        "spain",
+        "portugal",
+        "poland",
+        "czech",
+        "hungary",
+        "romania",
+        "austria",
+        "sweden",
+        "norway",
+        "denmark",
+        "finland",
+        "greece"
+      ]
     }
   ]
 }

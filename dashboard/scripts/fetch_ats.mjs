@@ -458,6 +458,66 @@ async function fetchSuccessFactors(source) {
 
 // Adapters take (source, filters); only Workday currently needs the filters, to
 // decide which unresolved multi-location rows are worth a detail fetch.
+// Goldman Sachs runs its own careers platform (higher.gs.com) rather than a standard
+// ATS. Its Apollo gateway exposes an unauthenticated `roleSearch` query returning
+// title, corporate title, division, locations, full HTML description, salary band and
+// the Oracle requisition id — everything the rubric needs, with no bot wall.
+//
+// EXPERIENCES IS A SCOPE BOUNDARY, NOT A TUNING KNOB: the schema separates
+// PROFESSIONAL (the public external board) from INTERNAL_MOBILITY (the employee-login
+// platform). config/candidate.json's currentEmployerExclusion forbids the internal
+// platform, so INTERNAL_MOBILITY is stripped here regardless of what a source config
+// asks for — external applications only.
+const GS_PAGE = 100;
+const GS_MAX_PAGES = 15;
+const GS_QUERY =
+  "query($q:RoleSearchQueryInput!){roleSearch(searchQueryInput:$q){totalCount items{" +
+  "roleId jobTitle corporateTitle division status locations{city country} " +
+  "descriptionHtml compensation{minSalary maxSalary currency} externalSource{sourceId}}}}";
+async function fetchGoldman(source) {
+  const host = source.host || "api-higher.gs.com";
+  const url = `https://${host}/gateway/api/v1/graphql`;
+  const experiences = (source.experiences ?? ["PROFESSIONAL"]).filter((e) => e !== "INTERNAL_MOBILITY");
+  if (!experiences.length) return { error: "goldman source needs a non-internal experience" };
+  const byId = new Map();
+  let firstError = null;
+  for (let page = 0; page < GS_MAX_PAGES; page++) {
+    const { data, error } = await getJson(url, {
+      method: "POST",
+      body: {
+        query: GS_QUERY,
+        variables: { q: { page: { pageSize: GS_PAGE, pageNumber: page }, experiences, searchTerm: source.searchTerm ?? "" } }
+      }
+    });
+    if (error) {
+      if (page === 0) firstError = error;
+      break;
+    }
+    if (data.errors?.length) {
+      if (page === 0) firstError = data.errors[0]?.message ?? "graphql error";
+      break;
+    }
+    const items = data.data?.roleSearch?.items ?? [];
+    for (const r of items) {
+      if (!r.roleId || byId.has(r.roleId)) continue;
+      if (/closed|filled|inactive/i.test(String(r.status ?? ""))) continue;
+      const c = r.compensation ?? {};
+      byId.set(r.roleId, {
+        role: r.jobTitle,
+        // Every city, so a multi-location req can still match the location filter.
+        location: (r.locations ?? []).map((l) => [l.city, l.country].filter(Boolean).join(", ")).join("; "),
+        internalId: String(r.externalSource?.sourceId || r.roleId),
+        link: `https://higher.gs.com/roles/${r.roleId}`,
+        description: htmlToText(r.descriptionHtml),
+        comp: c.minSalary && c.maxSalary ? `${c.minSalary}-${c.maxSalary} ${c.currency ?? ""}`.trim() : ""
+      });
+    }
+    if (items.length < GS_PAGE) break;
+  }
+  if (firstError && byId.size === 0) return { error: firstError };
+  return { jobs: [...byId.values()] };
+}
+
 const providers = {
   greenhouse: (s) => fetchGreenhouse(s.slug),
   lever: (s) => fetchLever(s.slug),
@@ -465,7 +525,8 @@ const providers = {
   smartrecruiters: (s) => fetchSmartRecruiters(s.slug),
   workday: (s, f) => fetchWorkday(s, f),
   google: (s) => fetchGoogle(s),
-  successfactors: (s) => fetchSuccessFactors(s)
+  successfactors: (s) => fetchSuccessFactors(s),
+  goldman: (s) => fetchGoldman(s)
 };
 
 // Exclusions match at a WORD START, not anywhere in the string. Plain `includes`
@@ -542,12 +603,21 @@ async function main() {
       perSource[index] = { report: { ...source, fetched: 0, kept: 0, error: "unknown provider" }, candidates: [] };
       return;
     }
-    const { jobs, error } = await provider(source, filters);
+    // A source may widen its own location scope (currently the current employer, kept
+    // Europe-wide). Whether those rows are IN SCOPE is a per-run decision the agent
+    // makes from the run's employer-Europe option — so the harvester must not
+    // pre-filter them away to the default region, or the option would have nothing
+    // left to reveal. They sort after the primary region and carry a scopeNote.
+    const wider = Array.isArray(source.locationFilters) && source.locationFilters.length > 0;
+    const sourceFilters = wider
+      ? { ...filters, locationFilters: source.locationFilters.map((s) => s.toLowerCase()) }
+      : filters;
+    const { jobs, error } = await provider(source, sourceFilters);
     if (error) {
       perSource[index] = { report: { ...source, fetched: 0, kept: 0, error }, candidates: [] };
       return;
     }
-    const kept = jobs.filter((j) => matches(j, filters));
+    const kept = jobs.filter((j) => matches(j, sourceFilters));
     perSource[index] = {
       candidates: kept.map((j) => ({
         company: source.company,
@@ -559,7 +629,10 @@ async function main() {
         // Full JD text (Greenhouse/Lever/Ashby) so agents can score/verify/write
         // cover letters without web fetches. Empty for sources that don't expose it.
         description: j.description || "",
-        comp: j.comp || ""
+        comp: j.comp || "",
+        ...(wider
+          ? { scopeNote: "Wider-than-default location scope (employer-wide). In scope only when this run enables the employer-Europe option; otherwise skip." }
+          : {})
       })),
       // Record EVERY fetched requisition id, not just the kept ones. A tracked role
       // that is absent from `candidates[]` but present here was filtered out (wrong
