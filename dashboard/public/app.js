@@ -1,5 +1,6 @@
 let data = null;
 let requests = null;
+let lastDataMtime = 0; // change token for the poll; see reloadDataIfChanged()
 let searchedCompaniesLive = null;
 let activeTab = "best";
 let summaryFilter = null;
@@ -703,6 +704,7 @@ async function load() {
   const bundle = await (await fetch("/api/data")).json();
   data = bundle.data;
   requests = bundle.requests;
+  lastDataMtime = Number(bundle.dataMtime) || 0; // seed it, so the first poll is not a spurious reload
   searchedCompaniesLive = bundle.searchedCompanies || null;
   applyCandidate(bundle.candidate);
   buildCompanyStats();
@@ -728,8 +730,15 @@ async function reloadDataIfChanged() {
   const res = await fetch("/api/data");
   if (!res.ok) return;
   const bundle = await res.json();
+  // Reload when EITHER signal moves. meta.updatedAt is only bumped by writers that
+  // remember to; agents rewrite roles[] with their own file tools, so a run could
+  // change the board while this tab sat on stale rows forever. The file mtime catches
+  // those writes regardless of who made them.
   const serverUpdated = bundle.data?.meta?.updatedAt;
-  if (!serverUpdated || serverUpdated === data?.meta?.updatedAt) return; // nothing new
+  const mtime = Number(bundle.dataMtime) || 0;
+  const changed = (serverUpdated && serverUpdated !== data?.meta?.updatedAt) || (mtime && mtime !== lastDataMtime);
+  lastDataMtime = mtime;
+  if (!changed) return;
   data = bundle.data;
   requests = bundle.requests;
   buildCompanyStats();

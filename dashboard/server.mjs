@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir, unlink, stat } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,9 @@ const atsSourcesPath = resolve(root, "dashboard/scripts/ats_sources.json");
 const candidateConfigPath = resolve(root, "config/candidate.json");
 const candidateExamplePath = resolve(root, "config/candidate.example.json");
 const port = Number(process.env.PORT || 3000);
+// Backstop for a hung agent run. Real runs take 8-20 minutes; override with
+// AGENT_TIMEOUT_MIN if a deliberate long run needs more room.
+const AGENT_TIMEOUT_MS = Math.max(5, Number(process.env.AGENT_TIMEOUT_MIN) || 60) * 60_000;
 const codexCli = process.env.CODEX_CLI || "codex";
 const claudeCli = process.env.CLAUDE_CLI || "claude";
 const agentConfigPath = resolve(root, "tracking/agent_config.json");
@@ -199,9 +202,17 @@ async function readJson(path, fallback) {
 
 async function writeJsonAtomic(path, value) {
   await mkdir(dirname(path), { recursive: true });
-  const temp = `${path}.tmp`;
-  await writeFile(temp, JSON.stringify(value, null, 2) + "\n", "utf8");
-  await rename(temp, path);
+  // Unique temp name per write: a shared `${path}.tmp` lets two concurrent writers
+  // interleave their write-then-rename, so one silently overwrites the other or
+  // renames a half-written file into place.
+  const temp = `${path}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  try {
+    await writeFile(temp, JSON.stringify(value, null, 2) + "\n", "utf8");
+    await rename(temp, path);
+  } catch (error) {
+    await unlink(temp).catch(() => {});
+    throw error;
+  }
 }
 
 // Candidate profile + search brief. All PII lives in config/candidate.json (gitignored);
@@ -267,8 +278,7 @@ function generateMarkdown(data) {
     ])
   );
 
-  const runs = (data.runSummaries ?? []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-  const latest = runs[0];
+  const latest = latestRunSummary(data.runSummaries);
   const latestRunMd = latest
     ? `- Date: ${escapeCell(latest.date)}${latest.agent ? ` (${escapeCell(latest.agent)})` : ""}
 - New roles: ${latest.newRoles ?? "—"}; Archived: ${latest.archived ?? "—"}; Removed: ${latest.removed ?? "—"}
@@ -317,6 +327,17 @@ ${gmailRows.length ? gmailRows.join("\n") : "| | | | | |"}
 `;
 }
 
+// Several runs share a date, so date alone does not identify the newest one: sorting
+// by date is stable, which handed the generated report the FIRST (oldest) summary of
+// the newest date while the dashboard showed the last. Break ties on array position —
+// later index = newer, since summaries are appended. MUST match renderRunSummary() in
+// public/app.js, which ranks the same way.
+function latestRunSummary(runSummaries) {
+  return (runSummaries ?? [])
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => String(b.s.date || "").localeCompare(String(a.s.date || "")) || b.i - a.i)[0]?.s;
+}
+
 async function loadBundle() {
   const data = await readJson(dataPath, {
     meta: { version: 2, updatedAt: new Date().toISOString(), updatedBy: "dashboard-server", nextId: 1 },
@@ -337,7 +358,12 @@ async function loadBundle() {
   // Current ATS source list (grouped by industry) so the "Companies searched" view can
   // render even for runs that predate the per-run snapshot.
   const searchedCompanies = await searchedCompaniesByCategory();
-  return { data, requests, candidate, searchedCompanies };
+  // Change token for the browser's poll. meta.updatedAt alone is not enough: agents
+  // rewrite roles[] with their own file tools and nothing forces them to touch that
+  // field, so an open dashboard kept showing stale rows (corrected apply links, in one
+  // case) indefinitely. The file's mtime moves whoever the writer is.
+  const dataMtime = await stat(dataPath).then((s) => s.mtimeMs).catch(() => 0);
+  return { data, requests, candidate, searchedCompanies, dataMtime };
 }
 
 async function saveData(data) {
@@ -663,9 +689,21 @@ async function startRequestProcess(request) {
   const completion = new Promise((resolveCompletion) => {
     let settled = false;
 
+    // A hung agent otherwise pins the request at RUNNING forever, and a RUNNING row
+    // cannot be retried. Runs normally take 8-20 minutes; this is a backstop, not a
+    // budget. SIGTERM first so the agent can flush its writes, SIGKILL if it ignores us.
+    const killTimer = setTimeout(() => {
+      if (settled) return;
+      log.write(`\nAgent run exceeded ${Math.round(AGENT_TIMEOUT_MS / 60000)} min — terminating.\n`);
+      child.kill("SIGTERM");
+      setTimeout(() => { if (!settled) child.kill("SIGKILL"); }, 15000).unref?.();
+    }, AGENT_TIMEOUT_MS);
+    killTimer.unref?.();
+
     child.on("error", async (error) => {
       if (settled) return;
       settled = true;
+      clearTimeout(killTimer);
       const finishedAt = new Date().toISOString();
       log.write(`\nAgent run failed to start: ${error.message}\n`);
       log.end();
@@ -680,6 +718,7 @@ async function startRequestProcess(request) {
     child.on("close", async (code, signal) => {
       if (settled) return;
       settled = true;
+      clearTimeout(killTimer);
       const finishedAt = new Date().toISOString();
       log.write(`\nAgent run finished: ${finishedAt}\n`);
       log.write(`Exit code: ${code}; signal: ${signal ?? ""}\n`);
@@ -1330,6 +1369,30 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(port, "127.0.0.1", () => {
+// A request is only RUNNING while THIS process is supervising its child. If the
+// server died or was restarted mid-run, that supervision is gone: nothing will ever
+// write finishedAt, and the row is stuck RUNNING forever — which also blocks a retry,
+// since /api/run-request refuses a RUNNING request with 409. Reconcile on boot.
+async function reconcileInterruptedRuns() {
+  const requests = await readJson(requestsPath, { meta: { version: 1 }, requests: [] });
+  const stale = (requests.requests ?? []).filter((r) => r.status === "RUNNING");
+  if (!stale.length) return;
+  const finishedAt = new Date().toISOString();
+  for (const r of stale) {
+    await updateRequest(r.id, {
+      status: "FAILED",
+      finishedAt,
+      error: "Interrupted: the dashboard server stopped while this run was in progress."
+    });
+  }
+  console.log(`Reconciled ${stale.length} interrupted run(s) left RUNNING by a previous process.`);
+}
+
+server.listen(port, "127.0.0.1", async () => {
   console.log(`Job search dashboard: http://127.0.0.1:${port}`);
+  try {
+    await reconcileInterruptedRuns();
+  } catch (error) {
+    console.error("Could not reconcile interrupted runs:", error.message);
+  }
 });
