@@ -23,7 +23,45 @@
     "schweiz",
     "suisse",
     "(ch)",
-    ", ch"
+    ", ch",
+    "horgen",
+    "wallisellen",
+    "opfikon",
+    "glattbrugg",
+    "dübendorf",
+    "duebendorf",
+    "schlieren",
+    "baar",
+    "rotkreuz",
+    "kloten",
+    "thalwil",
+    "uster",
+    "wädenswil",
+    "waedenswil",
+    "rüschlikon",
+    "rueschlikon",
+    "zollikon",
+    "vernier",
+    "meyrin",
+    "nyon",
+    "renens",
+    "morges",
+    "yverdon",
+    "neuchâtel",
+    "neuchatel",
+    "fribourg",
+    "bienne",
+    "luzern",
+    "lucerne",
+    "aarau",
+    "schaffhausen",
+    "sion",
+    "solothurn",
+    "altdorf",
+    "ittigen",
+    "köniz",
+    "koeniz",
+    "basle"
   ],
   "locationFilters": [
     "zurich",
@@ -53,7 +91,46 @@
     "paris",
     "remote - europe",
     "remote, europe",
-    "emea"
+    "emea",
+    "olten",
+    "horgen",
+    "wallisellen",
+    "opfikon",
+    "glattbrugg",
+    "dübendorf",
+    "duebendorf",
+    "schlieren",
+    "baar",
+    "rotkreuz",
+    "kloten",
+    "thalwil",
+    "uster",
+    "wädenswil",
+    "waedenswil",
+    "rüschlikon",
+    "rueschlikon",
+    "zollikon",
+    "vernier",
+    "meyrin",
+    "nyon",
+    "renens",
+    "morges",
+    "yverdon",
+    "neuchâtel",
+    "neuchatel",
+    "fribourg",
+    "bienne",
+    "luzern",
+    "lucerne",
+    "aarau",
+    "schaffhausen",
+    "sion",
+    "solothurn",
+    "altdorf",
+    "ittigen",
+    "köniz",
+    "koeniz",
+    "basle"
   ],
   "titleIncludes": [
     "engineer",
@@ -70,7 +147,36 @@
     "engineering lead",
     "engineering manager",
     "vp engineering",
-    "head of engineering"
+    "head of engineering",
+    "entwickler",
+    "entwicklerin",
+    "informatiker",
+    "softwareentwickl",
+    "applikationsentwickl",
+    "anwendungsentwickl",
+    "ingenieur",
+    "ingénieur",
+    "développeur",
+    "developpeur",
+    "architekt",
+    "programmier",
+    "programmer",
+    "technical lead",
+    "technical leader",
+    "team lead",
+    "full stack",
+    "fullstack",
+    "backend",
+    "back-end",
+    "frontend",
+    "front-end",
+    "sde",
+    "principal",
+    "head of technology",
+    "head of platform",
+    "technologist",
+    "data engineer",
+    "forward deployed"
   ],
   "titleExcludes": [
     "intern",
@@ -91,7 +197,6 @@
     "ios",
     "android",
     "mobile",
-    "store",
     "boutique",
     "retail",
     "brand",
@@ -102,7 +207,15 @@
     "procurement",
     "logistics",
     "supply chain",
-    "store leader"
+    "store leader",
+    "lehre",
+    "lernende",
+    "ausbildung",
+    "stagiaire",
+    "alternance",
+    "apprenti",
+    "werkstudent",
+    "trainee"
   ],
   "_NEXT_SOURCES": "Verified reachable 2026-07-26, not yet added — highest yield first: Deutsche Borse/Eurex (successfactors, careers.deutsche-boerse.com) and Pictet (successfactors, careers.pictet.com); Gunvor (workday gunvor/Gunvor_Careers @ gunvor.wd3.myworkdayjobs.com); Temenos (workday temenos/Temenoscareers @ temenos.wd103.myworkdayjobs.com); Zuhlke (workday zuehlke/Zuhlke-Careers @ zuehlke.wd3.myworkdayjobs.com); Amina Bank (personio slug 'amina' — needs a personio adapter); Smallpdf (ashby 'smallpdf'); Palantir (lever 'palantir', Paris only). VERIFIED NOT WORTH ADDING (boards live, zero Swiss/target rows): Man Group, Winton, Flow Traders, Tower Research, HRT 'hrttalentcommunity', XTX 'xtxmarketstechnologies'. STILL UNREACHABLE over plain HTTP: UBS (Brassring), Sygnum (Salesforce, 403), Vontobel (404s), Avaloq (403), Glencore/Partners Group/Mercuria (no ATS marker in careers HTML), Citadel/Two Sigma/Millennium/Balyasny (custom). To find a new employer's ATS: fetch its careers page and grep for greenhouse|lever|ashby|workday|smartrecruiters|personio|recruitee hostnames; for Workday, grep the page for the full '<tenant>.wdN.myworkdayjobs.com/<Site>' path (the tenant root does NOT redirect).",
   "_TODO": "BUY-SIDE / PRIVATE-BANK COVERAGE (2026-07 audit found near-zero asset-mgr/PE/commodity/family-office coverage). ADDED this pass (verified live): Squarepoint (GH squarepointcapital, has Geneva/Swiss roles), Point72 (GH point72, Geneva desk), Schonfeld/DRW/Jump (GH, mostly London so location filter drops most — kept for occasional Geneva/Paris/EU roles), Vitol (SmartRecruiters, Geneva eng roles open). HIGHEST-VALUE NEXT (real Swiss eng footprint): commodity traders Glencore (Zug), Trafigura (Workday trafigura.wd3.myworkdayjobs.com — tenant/site TBD), Gunvor/Mercuria (Geneva); Swiss private banks/AM Pictet, Lombard Odier, UBP, EFG (Geneva; custom/Workday tenants TBD), Partners Group (Zug PE). Greenhouse 404s (custom/other ATS, need web-search route): Citadel, Two Sigma, Balyasny, HRT, Verition, Millennium (mlp.com custom), Man Group, Brevan Howard, Marshall Wace. Family offices (LGT, Rothschild, Stonehage Fleming) rarely post publicly — route via web search, not ATS. STILL OPEN: CFM (jobs.cfm.com non-standard), UBS (Brassring partnerid=26059), JPMorgan (Oracle Cloud), Swiss Re (Cloudflare-walled), Zurich Insurance (custom), Avaloq (ATS unknown), Vontobel Workday (tenant unknown). Keep extending from employers/prospective_employers.md. Current employer (see config/candidate.json): use EXTERNAL public postings only; do NOT build an adapter for its internal-mobility platform (employee-auth, out of scope).",
@@ -251,6 +364,13 @@
       "slug": "db/DBWebsite",
       "host": "db.wd3.myworkdayjobs.com",
       "queries": [
+        "engineer",
+        "developer",
+        "software",
+        "architect",
+        "technology",
+        "quant",
+        "data",
         "Zurich",
         "Geneva",
         "Basel",
@@ -266,10 +386,7 @@
       "slug": "juliusbaer/External",
       "host": "juliusbaer.wd3.myworkdayjobs.com",
       "queries": [
-        "Zurich",
-        "Geneva",
-        "Basel",
-        "Zug"
+        ""
       ]
     },
     {
@@ -279,6 +396,13 @@
       "slug": "ms/External",
       "host": "ms.wd5.myworkdayjobs.com",
       "queries": [
+        "engineer",
+        "developer",
+        "software",
+        "architect",
+        "technology",
+        "quant",
+        "data",
         "Zurich",
         "Geneva",
         "Munich",
@@ -292,10 +416,7 @@
       "slug": "blackrock/BlackRock_Professional",
       "host": "blackrock.wd1.myworkdayjobs.com",
       "queries": [
-        "Zurich",
-        "Geneva",
-        "Munich",
-        "Paris"
+        ""
       ]
     },
     {
@@ -305,10 +426,7 @@
       "slug": "swisslife/Swiss_Life_Career_Site",
       "host": "swisslife.wd3.myworkdayjobs.com",
       "queries": [
-        "Zurich",
-        "Zug",
-        "Geneva",
-        "Basel"
+        ""
       ]
     },
     {
@@ -380,10 +498,7 @@
       "slug": "trafigura/TrafiguraCareerSite",
       "host": "trafigura.wd3.myworkdayjobs.com",
       "queries": [
-        "Geneva",
-        "Zug",
-        "engineer",
-        "developer"
+        ""
       ]
     },
     {
@@ -393,10 +508,7 @@
       "slug": "swisscom/SwisscomExternalCareers",
       "host": "swisscom.wd103.myworkdayjobs.com",
       "queries": [
-        "engineer",
-        "developer",
-        "software",
-        "architect"
+        ""
       ]
     },
     {
@@ -424,12 +536,7 @@
       "slug": "temenos/Temenoscareers",
       "host": "temenos.wd103.myworkdayjobs.com",
       "queries": [
-        "Geneva",
-        "Zurich",
-        "Lausanne",
-        "Switzerland",
-        "Munich",
-        "Paris"
+        ""
       ]
     }
   ]

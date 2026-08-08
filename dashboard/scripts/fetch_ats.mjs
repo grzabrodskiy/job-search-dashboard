@@ -21,6 +21,7 @@ const outPath = resolve(root, "tracking/ats_candidates.json");
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const TIMEOUT_MS = 25000; // higher: Greenhouse content=true returns large payloads
+const SOURCE_CONCURRENCY = 5; // sources fetched in parallel; the work is network-bound
 const JD_MAX = 2800; // cap stored job-description text so the candidate file stays reasonable
 
 // Convert (possibly entity-escaped) HTML to trimmed plain text, capped at JD_MAX.
@@ -180,10 +181,23 @@ async function fetchSmartRecruiters(slug) {
 // Workday caps page size at 20 and paginates, so big banks (1000+ reqs) need many
 // pages. We narrow with one or more searchText queries (source.queries, e.g.
 // ["engineer","developer"]) and page each up to WORKDAY_MAX_PAGES, unioning results.
+// NOTE: searchText is a KEYWORD search over the posting, not a location filter —
+// passing city names ("Zurich") returns only postings whose text happens to mention
+// the city, which is an arbitrary subset. Prefer [""] (enumerate the whole board and
+// let the location filter do the work) and reserve keyword queries for boards too
+// large to page through.
 const WORKDAY_PAGE = 20;
 const WORKDAY_MAX_PAGES = 20;
 const WORKDAY_DETAIL_BATCH = 6;
-async function fetchWorkday(source) {
+const WORKDAY_PAGE_BATCH = 5;
+// Multi-site postings come back as "3 Locations" instead of a city. Those rows match
+// no location filter, so they used to be dropped wholesale (47 at one insurer alone).
+// The detail endpoint resolves them, so we hydrate the ones whose TITLE already looks
+// relevant — no point resolving the cities of a Personal Assistant req — up to a cap
+// that keeps a 1,400-req board from turning into 1,400 detail fetches.
+const WORKDAY_MULTI_LOC = /^\s*\d+\s+locations\s*$/i;
+const WORKDAY_UNKNOWN_LOC_CAP = 80;
+async function fetchWorkday(source, filters) {
   const { slug, host } = source;
   if (!host) return { error: "workday source needs a host" };
   const site = slug.split("/")[1] ?? "";
@@ -191,38 +205,77 @@ async function fetchWorkday(source) {
   const queries = source.queries ?? [""];
   const byPath = new Map();
   let firstError = null;
-  for (const q of queries) {
-    for (let page = 0; page < WORKDAY_MAX_PAGES; page++) {
-      const { data, error } = await getJson(url, {
-        method: "POST",
-        body: { appliedFacets: {}, limit: WORKDAY_PAGE, offset: page * WORKDAY_PAGE, searchText: q }
+  const page = (offset, q) =>
+    getJson(url, { method: "POST", body: { appliedFacets: {}, limit: WORKDAY_PAGE, offset, searchText: q } });
+  const absorb = (postings) => {
+    let added = 0;
+    for (const j of postings ?? []) {
+      const path = j.externalPath ?? `${j.title}-${j.bulletFields?.[0] ?? ""}`;
+      if (byPath.has(path)) continue;
+      byPath.set(path, {
+        role: j.title,
+        location: j.locationsText ?? "",
+        internalId: String(j.bulletFields?.[0] ?? ""),
+        link: `https://${host}/en-US/${site}${j.externalPath ?? ""}`,
+        path: j.externalPath ?? ""
       });
-      if (error) {
-        if (page === 0 && byPath.size === 0) firstError = error;
-        break;
+      added++;
+    }
+    return added;
+  };
+
+  for (const q of queries) {
+    // Workday reports a real `total` on the FIRST page only; every later page returns
+    // total: 0. Comparing against that zero ended pagination after two pages and
+    // silently truncated the board (Julius Baer: 40 of 83 "Zurich" matches fetched).
+    // Read the total once from page 0 and treat a missing/zero value as "unknown".
+    const first = await page(0, q);
+    if (first.error) {
+      if (byPath.size === 0) firstError = first.error;
+      continue;
+    }
+    const total = Number(first.data.total) || 0;
+    const firstBatch = first.data.jobPostings ?? [];
+    absorb(firstBatch);
+    if (firstBatch.length < WORKDAY_PAGE) continue;
+
+    if (total > 0) {
+      // Total known: the remaining offsets are known too, so fetch them concurrently
+      // rather than walking a 1,400-req board twenty rows at a time.
+      const lastPage = Math.min(WORKDAY_MAX_PAGES, Math.ceil(total / WORKDAY_PAGE));
+      for (let p = 1; p < lastPage; p += WORKDAY_PAGE_BATCH) {
+        const offsets = [];
+        for (let k = p; k < Math.min(p + WORKDAY_PAGE_BATCH, lastPage); k++) offsets.push(k * WORKDAY_PAGE);
+        const results = await Promise.allSettled(offsets.map((o) => page(o, q)));
+        for (const r of results) {
+          if (r.status === "fulfilled" && !r.value.error) absorb(r.value.data.jobPostings);
+        }
       }
-      const postings = data.jobPostings ?? [];
-      for (const j of postings) {
-        const path = j.externalPath ?? `${j.title}-${j.bulletFields?.[0] ?? ""}`;
-        if (byPath.has(path)) continue;
-        byPath.set(path, {
-          role: j.title,
-          location: j.locationsText ?? "",
-          internalId: String(j.bulletFields?.[0] ?? ""),
-          link: `https://${host}/en-US/${site}${j.externalPath ?? ""}`,
-          path: j.externalPath ?? ""
-        });
+    } else {
+      // Total unknown: walk sequentially until a short page or a page that adds nothing.
+      for (let p = 1; p < WORKDAY_MAX_PAGES; p++) {
+        const { data, error } = await page(p * WORKDAY_PAGE, q);
+        if (error) break;
+        const postings = data.jobPostings ?? [];
+        const added = absorb(postings);
+        if (postings.length < WORKDAY_PAGE || added === 0) break;
       }
-      if (postings.length < WORKDAY_PAGE || page * WORKDAY_PAGE + postings.length >= (data.total ?? 0)) break;
     }
   }
-  if (firstError) return { error: firstError };
+  // Only report failure if NOTHING came back: one bad query among several must not
+  // discard the rows the other queries found (the SuccessFactors adapter already
+  // guards this way).
+  if (firstError && byPath.size === 0) return { error: firstError };
 
   // The list endpoint omits the JD. Hydrate target-region rows from the CXS detail
   // endpoint, which also returns `canApply` — a first-class liveness signal that is
   // more reliable than inferring closure from harvest absence.
   const jobs = [...byPath.values()];
-  const wanted = jobs.filter((j) => SR_LOC_HINTS.some((h) => j.location.toLowerCase().includes(h)));
+  const inRegion = (j) => SR_LOC_HINTS.some((h) => j.location.toLowerCase().includes(h));
+  const unresolved = jobs
+    .filter((j) => WORKDAY_MULTI_LOC.test(j.location) && titleAllowed(j.role, filters))
+    .slice(0, WORKDAY_UNKNOWN_LOC_CAP);
+  const wanted = [...jobs.filter(inRegion), ...unresolved];
   for (let i = 0; i < wanted.length; i += WORKDAY_DETAIL_BATCH) {
     await Promise.allSettled(
       wanted.slice(i, i + WORKDAY_DETAIL_BATCH).map(async (j) => {
@@ -233,6 +286,12 @@ async function fetchWorkday(source) {
         j.description = htmlToText(info.jobDescription || "");
         if (info.canApply === false) j.canApply = false;
         if (info.jobReqId) j.internalId = String(info.jobReqId);
+        // Replace "3 Locations" with the cities the detail page names, so the
+        // location filter can finally see them.
+        if (WORKDAY_MULTI_LOC.test(j.location)) {
+          const cities = [...new Set([info.location, ...(info.additionalLocations ?? [])].filter(Boolean))];
+          if (cities.length) j.location = cities.join(", ");
+        }
       })
     );
   }
@@ -377,24 +436,69 @@ async function fetchSuccessFactors(source) {
   return { jobs };
 }
 
+// Adapters take (source, filters); only Workday currently needs the filters, to
+// decide which unresolved multi-location rows are worth a detail fetch.
 const providers = {
   greenhouse: (s) => fetchGreenhouse(s.slug),
   lever: (s) => fetchLever(s.slug),
   ashby: (s) => fetchAshby(s.slug),
   smartrecruiters: (s) => fetchSmartRecruiters(s.slug),
-  workday: (s) => fetchWorkday(s),
+  workday: (s, f) => fetchWorkday(s, f),
   google: (s) => fetchGoogle(s),
   successfactors: (s) => fetchSuccessFactors(s)
 };
 
-function matches(job, { locationFilters, titleIncludes, titleExcludes }) {
-  const loc = String(job.location || "").toLowerCase();
-  const title = String(job.role || "").toLowerCase();
+// Exclusions match at a WORD START, not anywhere in the string. Plain `includes`
+// made "ios" delete "Studios"/"Scenarios", "store" delete "Feature Store", and
+// "mobile" delete "Automobile" — silently dropping exactly the platform titles worth
+// having. Anchoring the start while leaving the end open keeps deliberate stems
+// working ("merchandis" still catches "Merchandising").
+const excludeCache = new Map();
+function excludeRe(term) {
+  let re = excludeCache.get(term);
+  if (!re) {
+    re = new RegExp(`(^|[^\\p{L}\\p{N}])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "iu");
+    excludeCache.set(term, re);
+  }
+  return re;
+}
+
+// Title half of the filter, split out so the Workday adapter can ask "is this title
+// worth a detail fetch?" before spending a request resolving its location.
+function titleAllowed(role, { titleIncludes, titleExcludes }) {
+  const title = String(role || "").toLowerCase();
   if (!title) return false;
-  const locOk = locationFilters.length === 0 || locationFilters.some((f) => loc.includes(f));
   const titleOk = titleIncludes.length === 0 || titleIncludes.some((t) => title.includes(t));
-  const excluded = (titleExcludes ?? []).some((t) => title.includes(t));
-  return locOk && titleOk && !excluded;
+  const excluded = (titleExcludes ?? []).some((t) => excludeRe(t).test(title));
+  return titleOk && !excluded;
+}
+
+// Location terms are anchored at a word start for the same reason. The bare
+// substring "gland" (a Swiss town near Geneva) matched "England, United Kingdom",
+// so London roles were harvested AND sorted into the primary-region block the
+// agents are told to work first. Terms starting with punctuation — ", ch", "(ch)"
+// — are country-code suffixes and must stay plain substrings.
+const locCache = new Map();
+function locationMatches(loc, terms) {
+  return terms.some((t) => {
+    // ", ch" is a trailing country code ("Zurich, CH"). As a plain substring it also
+    // matched "Shanghai, China" and would match ", Chicago"/", Charlotte", so it is
+    // only honoured at the end of the string.
+    if (t.startsWith(",")) return loc.trimEnd().endsWith(t);
+    if (!/^[\p{L}\p{N}]/u.test(t)) return loc.includes(t);
+    let re = locCache.get(t);
+    if (!re) {
+      re = new RegExp(`(^|[^\\p{L}\\p{N}])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "iu");
+      locCache.set(t, re);
+    }
+    return re.test(loc);
+  });
+}
+
+function matches(job, filters) {
+  const loc = String(job.location || "").toLowerCase();
+  const locOk = filters.locationFilters.length === 0 || locationMatches(loc, filters.locationFilters);
+  return locOk && titleAllowed(job.role, filters);
 }
 
 async function main() {
@@ -405,23 +509,27 @@ async function main() {
     titleExcludes: (config.titleExcludes ?? []).map((s) => s.toLowerCase())
   };
 
-  const candidates = [];
-  const sourceReport = [];
+  // Sources are fetched with bounded concurrency — the work is almost entirely
+  // network wait, and paging the big Workday boards serially took minutes. Results
+  // are written back by index so the output order stays identical to the config
+  // order regardless of which source finishes first.
+  const sources = config.sources ?? [];
+  const perSource = new Array(sources.length);
 
-  for (const source of config.sources ?? []) {
+  async function runSource(source, index) {
     const provider = providers[source.provider];
     if (!provider) {
-      sourceReport.push({ ...source, fetched: 0, kept: 0, error: "unknown provider" });
-      continue;
+      perSource[index] = { report: { ...source, fetched: 0, kept: 0, error: "unknown provider" }, candidates: [] };
+      return;
     }
-    const { jobs, error } = await provider(source);
+    const { jobs, error } = await provider(source, filters);
     if (error) {
-      sourceReport.push({ ...source, fetched: 0, kept: 0, error });
-      continue;
+      perSource[index] = { report: { ...source, fetched: 0, kept: 0, error }, candidates: [] };
+      return;
     }
     const kept = jobs.filter((j) => matches(j, filters));
-    for (const j of kept) {
-      candidates.push({
+    perSource[index] = {
+      candidates: kept.map((j) => ({
         company: source.company,
         provider: source.provider,
         role: j.role,
@@ -432,20 +540,33 @@ async function main() {
         // cover letters without web fetches. Empty for sources that don't expose it.
         description: j.description || "",
         comp: j.comp || ""
-      });
-    }
-    // Record EVERY fetched requisition id, not just the kept ones. A tracked role
-    // that is absent from `candidates[]` but present here was filtered out (wrong
-    // city/title), NOT closed — reading filtered-absence as closure has repeatedly
-    // caused live roles to be archived by mistake.
-    sourceReport.push({
-      company: source.company,
-      provider: source.provider,
-      fetched: jobs.length,
-      kept: kept.length,
-      allInternalIds: jobs.map((j) => String(j.internalId || "")).filter(Boolean)
-    });
+      })),
+      // Record EVERY fetched requisition id, not just the kept ones. A tracked role
+      // that is absent from `candidates[]` but present here was filtered out (wrong
+      // city/title), NOT closed — reading filtered-absence as closure has repeatedly
+      // caused live roles to be archived by mistake.
+      report: {
+        company: source.company,
+        provider: source.provider,
+        fetched: jobs.length,
+        kept: kept.length,
+        allInternalIds: jobs.map((j) => String(j.internalId || "")).filter(Boolean)
+      }
+    };
   }
+
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(SOURCE_CONCURRENCY, sources.length) }, async () => {
+      while (next < sources.length) {
+        const index = next++;
+        await runSource(sources[index], index);
+      }
+    })
+  );
+
+  const candidates = perSource.flatMap((s) => s.candidates);
+  const sourceReport = perSource.map((s) => s.report);
 
   // Dedupe within this harvest on link, else company+role+internalId.
   const seen = new Set();
@@ -462,10 +583,7 @@ async function main() {
   // region before spending budget on the backup tier. Candidate-agnostic: the terms
   // live in ats_sources.json, never in this file.
   const primaryFilters = (config.primaryLocationFilters ?? []).map((s) => s.toLowerCase());
-  const isPrimary = (c) => {
-    const loc = String(c.location || "").toLowerCase();
-    return primaryFilters.some((f) => loc.includes(f));
-  };
+  const isPrimary = (c) => locationMatches(String(c.location || "").toLowerCase(), primaryFilters);
   const ordered = primaryFilters.length
     ? [...deduped].sort((a, b) => Number(isPrimary(b)) - Number(isPrimary(a)))
     : deduped;
