@@ -136,9 +136,14 @@
             <input id="runMunichParis" type="checkbox">
             <span><b>Extend search to Munich &amp; Paris.</b> Leave unchecked to search Switzerland only (default).</span>
           </label>
+          <label class="run-check">
+            <input id="runEmployerEurope" type="checkbox">
+            <span><b>Also search <span id="runEmployerName">current-employer</span> roles anywhere in Europe.</b> Widens the location scope for that employer only; every other employer stays inside the scope above.</span>
+          </label>
           <label class="cl-field"><span>Focus for this run (optional)</span>
             <input id="runNotes" type="text" placeholder="e.g. Geneva commodity traders &amp; private banks; only AI/agentic roles">
           </label>
+          <p id="runCarried" class="run-carried hidden">Focus and scope carried over from your last run — edit or clear them if this run should differ.</p>
           <div class="cl-actions">
             <button id="runStart" class="primary">▶ Start run</button>
             <span id="runStatus" class="cl-status"></span>

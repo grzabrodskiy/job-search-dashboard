@@ -418,7 +418,8 @@ function runModelEffort(r) {
 // Location scope a run was launched with; "" for requests that predate the setting.
 function runScope(r) {
   if (typeof r.includeMunichParis !== "boolean") return "";
-  return r.includeMunichParis ? "CH + Munich & Paris" : "Switzerland only";
+  const base = r.includeMunichParis ? "CH + Munich & Paris" : "Switzerland only";
+  return r.includeEmployerEurope === true ? `${base} + employer Europe-wide` : base;
 }
 
 // Only shown when a run skipped a step (all-on is the default, so stays quiet).
@@ -683,6 +684,8 @@ function applyCandidate(candidate) {
   document.title = title;
   const h1 = document.querySelector("#appTitle");
   if (h1) h1.textContent = title;
+  const employerName = document.querySelector("#runEmployerName");
+  if (employerName) employerName.textContent = candidate.currentEmployer || "current-employer";
   const phoneBtn = document.querySelector("#phoneCopy");
   if (phoneBtn) {
     if (candidate.phone) {
@@ -740,6 +743,8 @@ const runModal = document.querySelector("#runModal");
 const runTitle = document.querySelector("#runTitle");
 const runNotes = document.querySelector("#runNotes");
 const runMunichParis = document.querySelector("#runMunichParis");
+const runEmployerEurope = document.querySelector("#runEmployerEurope");
+const runCarried = document.querySelector("#runCarried");
 const runStatus = document.querySelector("#runStatus");
 const runModelSel = document.querySelector("#runModelSel");
 const runEffortSel = document.querySelector("#runEffortSel");
@@ -751,11 +756,38 @@ const runSteps = {
 };
 let runAgentPending = null;
 
+// The focus note and the Munich/Paris scope carry over to the next run so a
+// follow-up run with the other agent inherits them instead of silently starting
+// with no instruction. Expires after a day so a stale note never re-applies
+// unnoticed; clearing the note clears the carry-over.
+const RUN_PREFS_KEY = "jobsearch.runPrefs";
+const RUN_PREFS_TTL_MS = 24 * 60 * 60 * 1000;
+
+function loadRunPrefs() {
+  try {
+    const raw = window.localStorage.getItem(RUN_PREFS_KEY);
+    if (!raw) return null;
+    const prefs = JSON.parse(raw);
+    if (!prefs || Date.now() - (prefs.savedAt || 0) > RUN_PREFS_TTL_MS) return null;
+    if (!prefs.notes && prefs.includeMunichParis !== true && prefs.includeEmployerEurope !== true) return null;
+    return prefs;
+  } catch { return null; }
+}
+
+function saveRunPrefs(notes, includeMunichParis, includeEmployerEurope) {
+  try {
+    window.localStorage.setItem(RUN_PREFS_KEY, JSON.stringify({ notes, includeMunichParis, includeEmployerEurope, savedAt: Date.now() }));
+  } catch { /* localStorage unavailable — carrying over is best-effort */ }
+}
+
 async function openRunModal(agent) {
   runAgentPending = agent;
   runTitle.textContent = agent === "claude" ? "Run Claude" : "Run Codex";
-  runNotes.value = "";
-  runMunichParis.checked = false; // default: Switzerland only
+  const carried = loadRunPrefs();
+  runNotes.value = carried?.notes || "";
+  runMunichParis.checked = carried?.includeMunichParis === true; // default: Switzerland only
+  runEmployerEurope.checked = carried?.includeEmployerEurope === true; // default: no employer-wide widening
+  runCarried.classList.toggle("hidden", !carried);
   Object.values(runSteps).forEach((cb) => { cb.checked = true; }); // default: all steps on
   runModelSel.innerHTML = "";
   runEffortSel.innerHTML = "";
@@ -785,14 +817,17 @@ async function startRun() {
   if (!runAgentPending) return;
   const agent = runAgentPending;
   runStatus.textContent = "Starting…";
+  const notes = runNotes.value.trim();
+  saveRunPrefs(notes, runMunichParis.checked, runEmployerEurope.checked);
   try {
     const res = await fetch("/api/run-agent", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         agent,
-        notes: runNotes.value.trim(),
+        notes,
         includeMunichParis: runMunichParis.checked,
+        includeEmployerEurope: runEmployerEurope.checked,
         model: runModelSel.value,
         effort: runEffortSel.value,
         phases: {

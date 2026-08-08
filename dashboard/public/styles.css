@@ -325,6 +325,8 @@ button.primary:disabled, .cl-actions button:disabled { opacity: 0.5; cursor: def
 .cfg-group legend { padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--text); text-transform: uppercase; letter-spacing: 0.4px; }
 .cfg-env { margin: 10px 0 0; font-size: 11.5px; color: #d8a34a; }
 .cfg-env.hidden { display: none; }
+.run-carried { margin: 6px 0 0; font-size: 11.5px; color: #d8a34a; }
+.run-carried.hidden { display: none; }
 
 /* Run-options popup */
 .run-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }

@@ -333,7 +333,7 @@ async function loadBundle() {
     requests: []
   });
   const c = await loadCandidate();
-  const candidate = { appTitle: c.appTitle || "Job Search Dashboard", displayName: c.displayName || "", phone: c.phone || "" };
+  const candidate = { appTitle: c.appTitle || "Job Search Dashboard", displayName: c.displayName || "", phone: c.phone || "", currentEmployer: c.currentEmployer || "" };
   // Current ATS source list (grouped by industry) so the "Companies searched" view can
   // render even for runs that predate the per-run snapshot.
   const searchedCompanies = await searchedCompaniesByCategory();
@@ -427,6 +427,7 @@ async function addRequest(payload) {
     parentId: payload.parentId ?? "",
     step: payload.step ?? null,
     includeMunichParis: payload.includeMunichParis === true,
+    includeEmployerEurope: payload.includeEmployerEurope === true,
     phases: normalizePhases(payload.phases)
   };
   requests.requests = [request, ...(requests.requests ?? [])];
@@ -456,11 +457,27 @@ function agentForRequest(type) {
 
 function promptForRequest(request, agent, candidate) {
   const notes = request.notes?.trim() || "(none)";
+  const hasNotes = notes !== "(none)";
   const brief = candidate.searchBrief || {};
   const includeMunichParis = request.includeMunichParis === true;
-  const locationScope = includeMunichParis
-    ? "SWITZERLAND (primary: Zurich > Zug > Geneva > Basel > Bern/Lausanne/Lugano) PLUS Munich and Paris as secondary in-scope locations. Verify the real city on the posting; never infer it."
-    : "SWITZERLAND ONLY (Zurich > Zug > Geneva > Basel > Bern/Lausanne/Lugano). Do NOT log Munich, Paris, or ANY other non-Swiss location on this run — skip them entirely, even a strong fit. Verify the real city on the posting; never infer it.";
+  const baseScope = includeMunichParis
+    ? "SWITZERLAND (primary: Zurich > Zug > Geneva > Basel > Bern/Lausanne/Lugano) PLUS Munich and Paris as secondary in-scope locations."
+    : "SWITZERLAND ONLY (Zurich > Zug > Geneva > Basel > Bern/Lausanne/Lugano). Do NOT log Munich, Paris, or ANY other non-Swiss location on this run — skip them entirely, even a strong fit.";
+  // The family's per-run note outranks this scope. Without this carve-out the scope
+  // line and the priority block contradict each other whenever the note names a city
+  // the scope omits (e.g. "Goldman Sachs in Paris or Frankfurt"), and which one the
+  // model obeys is a coin flip.
+  const scopeException = hasNotes
+    ? " EXCEPTION: the PRIORITY INSTRUCTION at the top of this prompt outranks this scope. If it names a city, country, or region not listed above, that location IS in scope for this run — search it and log qualifying roles normally, and state in the run summary what you found there (including \"nothing qualifying\" when that is the answer). The scope above still governs every location the instruction does not name."
+    : "";
+  // Opt-in widening for the current employer only: the candidate already works there,
+  // so an internal-style move is worth chasing across Europe even though the geography
+  // is far outside the default scope. Every other employer stays bound by baseScope.
+  const employer = candidate.currentEmployer || "the candidate's current employer";
+  const employerEurope = request.includeEmployerEurope === true
+    ? ` ${employer.toUpperCase()} — EUROPE-WIDE THIS RUN: in addition to the scope above, ${employer} roles in ANY European country are IN SCOPE (London, Paris, Frankfurt, Dublin, Amsterdam, Milan, Madrid, Warsaw, Stockholm, Zurich/Geneva, etc.). This widening applies to ${employer} ONLY — every other employer stays bound by the scope above. Apply the same level/role/language/rubric bar, follow the CURRENT EMPLOYER rules stated later in this prompt, and report in the run summary which ${employer} European locations you searched and what you found (including "nothing qualifying").`
+    : "";
+  const locationScope = `${baseScope} Verify the real city on the posting; never infer it.${employerEurope}${scopeException}`;
   const phases = request.phases || {};
   const doSearch = phases.search !== false;
   const doVerify = phases.verify !== false;
@@ -468,7 +485,10 @@ function promptForRequest(request, agent, candidate) {
   const doReview = phases.review !== false;
 
   const intro = "Run a job-search maintenance pass. The full rubric, source list, and field definitions live in workflows/search_session.md and prompts/job_search_prompt.md — read them; this is a summary, not a replacement.";
-  const scopeLine = `LOCATION SCOPE FOR THIS RUN (hard filter — overrides any location wording elsewhere in this prompt): ${locationScope}`;
+  const scopeRank = hasNotes
+    ? "hard filter — overrides the location wording in workflows/search_session.md, prompts/job_search_prompt.md, and config/candidate.json, but NOT the PRIORITY INSTRUCTION above"
+    : "hard filter — overrides the location wording in workflows/search_session.md, prompts/job_search_prompt.md, and config/candidate.json";
+  const scopeLine = `LOCATION SCOPE FOR THIS RUN (${scopeRank}): ${locationScope}`;
   const enabledSteps = [
     doSearch && "SEARCH for new roles",
     doVerify && "RE-VERIFY the active roles (rotating slice)",
@@ -512,7 +532,6 @@ function promptForRequest(request, agent, candidate) {
     ["CODEX_FULL_RUN", soloRun]
   ]);
 
-  const hasNotes = notes && notes !== "(none)";
   const priorityBlock = hasNotes
     ? `========================================================
 PRIORITY INSTRUCTION FROM THE FAMILY FOR THIS RUN
@@ -520,10 +539,16 @@ PRIORITY INSTRUCTION FROM THE FAMILY FOR THIS RUN
 ${notes}
 
 This is the family's explicit instruction for THIS run and takes precedence
-over the default scope below wherever they conflict. If it names specific
-companies, locations, or role types, NARROW this run to focus on them first
-(you may still do the standard re-verify/dedupe bookkeeping). Begin your final
-summary by stating how you addressed this instruction.
+over the default scope below wherever they conflict — INCLUDING the LOCATION
+SCOPE line. If it names a location that the location scope does not list, that
+location is in scope for this run; do not skip it as out-of-scope. If it names
+specific companies, locations, or role types, NARROW this run to focus on them
+first (you may still do the standard re-verify/dedupe bookkeeping).
+
+Begin your final run summary by stating how you addressed this instruction, and
+put that same statement in the FIRST entry of the summary's changes[] array. If
+it produced no roles, say so explicitly and say what you searched and rejected —
+a null result must be visible on the dashboard, not silent.
 ========================================================
 
 `
@@ -1160,6 +1185,7 @@ const server = createServer(async (req, res) => {
         title: `Run ${agent} (solo full run)`,
         notes: payload.notes ?? "",
         includeMunichParis: payload.includeMunichParis === true,
+        includeEmployerEurope: payload.includeEmployerEurope === true,
         phases: payload.phases
       });
       // Mark RUNNING right away: the ATS harvest takes ~30-40s before the agent
