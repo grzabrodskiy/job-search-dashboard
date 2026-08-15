@@ -217,7 +217,7 @@
     "werkstudent",
     "trainee"
   ],
-  "_NEXT_SOURCES": "Verified reachable 2026-07-26, not yet added — highest yield first: Deutsche Borse/Eurex (successfactors, careers.deutsche-boerse.com) and Pictet (successfactors, careers.pictet.com); Gunvor (workday gunvor/Gunvor_Careers @ gunvor.wd3.myworkdayjobs.com); Temenos (workday temenos/Temenoscareers @ temenos.wd103.myworkdayjobs.com); Zuhlke (workday zuehlke/Zuhlke-Careers @ zuehlke.wd3.myworkdayjobs.com); Amina Bank (personio slug 'amina' — needs a personio adapter); Smallpdf (ashby 'smallpdf'); Palantir (lever 'palantir', Paris only). VERIFIED NOT WORTH ADDING (boards live, zero Swiss/target rows): Man Group, Winton, Flow Traders, Tower Research, HRT 'hrttalentcommunity', XTX 'xtxmarketstechnologies'. STILL UNREACHABLE over plain HTTP: UBS (Brassring), Sygnum (Salesforce, 403), Vontobel (404s), Avaloq (403), Glencore/Partners Group/Mercuria (no ATS marker in careers HTML), Citadel/Two Sigma/Millennium/Balyasny (custom). To find a new employer's ATS: fetch its careers page and grep for greenhouse|lever|ashby|workday|smartrecruiters|personio|recruitee hostnames; for Workday, grep the page for the full '<tenant>.wdN.myworkdayjobs.com/<Site>' path (the tenant root does NOT redirect).",
+  "_NEXT_SOURCES": "Re-verified 2026-08-15. WORTH ADDING (reachable, standard adapter): Gunvor (workday gunvor/Gunvor_Careers @ gunvor.wd3.myworkdayjobs.com); Zuhlke (workday zuehlke/Zuhlke-Careers @ zuehlke.wd3.myworkdayjobs.com); Palantir (lever 'palantir', Paris only). NEEDS A NEW ADAPTER: Amina Bank (personio slug 'amina'); Deutsche Boerse/Eurex — NOT successfactors as previously recorded: careers.deutsche-boerse.com is a Nuxt SPA whose data comes from api.my-job-shop.com via Typesense (the page ships a rotating Typesense key), so the /search/?q= path returns 200 with ZERO data-rows; a Typesense adapter is required. REMOVED — DEAD: Pictet (careers.pictet.com no longer resolves in DNS, 2026-08-15; only www.pictet.com resolves). ADDED SINCE: Temenos, Smallpdf, Goldman Sachs (custom 'goldman' adapter against the higher.gs.com Apollo gateway). VERIFIED NOT WORTH ADDING (boards live, zero Swiss/target rows): Man Group, Winton, Flow Traders, Tower Research, HRT 'hrttalentcommunity', XTX 'xtxmarketstechnologies'. STILL UNREACHABLE over plain HTTP: UBS (Brassring), Sygnum (Salesforce, 403), Vontobel (404s), Avaloq (403), Glencore/Partners Group/Mercuria (no ATS marker), Citadel/Two Sigma/Millennium/Balyasny (custom) — these are covered by _MANUAL_CHECKS instead. To find a new employer's ATS: fetch its careers page and grep for greenhouse|lever|ashby|workday|smartrecruiters|personio|recruitee hostnames; for Workday, grep for the full '<tenant>.wdN.myworkdayjobs.com/<Site>' path (the tenant root does NOT redirect).",
   "_TODO": "BUY-SIDE / PRIVATE-BANK COVERAGE (2026-07 audit found near-zero asset-mgr/PE/commodity/family-office coverage). ADDED this pass (verified live): Squarepoint (GH squarepointcapital, has Geneva/Swiss roles), Point72 (GH point72, Geneva desk), Schonfeld/DRW/Jump (GH, mostly London so location filter drops most — kept for occasional Geneva/Paris/EU roles), Vitol (SmartRecruiters, Geneva eng roles open). HIGHEST-VALUE NEXT (real Swiss eng footprint): commodity traders Glencore (Zug), Trafigura (Workday trafigura.wd3.myworkdayjobs.com — tenant/site TBD), Gunvor/Mercuria (Geneva); Swiss private banks/AM Pictet, Lombard Odier, UBP, EFG (Geneva; custom/Workday tenants TBD), Partners Group (Zug PE). Greenhouse 404s (custom/other ATS, need web-search route): Citadel, Two Sigma, Balyasny, HRT, Verition, Millennium (mlp.com custom), Man Group, Brevan Howard, Marshall Wace. Family offices (LGT, Rothschild, Stonehage Fleming) rarely post publicly — route via web search, not ATS. STILL OPEN: CFM (jobs.cfm.com non-standard), UBS (Brassring partnerid=26059), JPMorgan (Oracle Cloud), Swiss Re (Cloudflare-walled), Zurich Insurance (custom), Avaloq (ATS unknown), Vontobel Workday (tenant unknown). Keep extending from employers/prospective_employers.md. Current employer (see config/candidate.json): use EXTERNAL public postings only; do NOT build an adapter for its internal-mobility platform (employee-auth, out of scope).",
   "sources": [
     {
@@ -540,6 +540,32 @@
       ]
     },
     {
+      "company": "Zuhlke",
+      "category": "Tech / AI",
+      "provider": "workday",
+      "slug": "zuehlke/Zuhlke-Careers",
+      "host": "zuehlke.wd3.myworkdayjobs.com",
+      "queries": [
+        ""
+      ]
+    },
+    {
+      "company": "Gunvor",
+      "category": "Commodity Trading",
+      "provider": "workday",
+      "slug": "gunvor/Gunvor_Careers",
+      "host": "gunvor.wd3.myworkdayjobs.com",
+      "queries": [
+        ""
+      ]
+    },
+    {
+      "company": "Palantir",
+      "category": "Tech / AI",
+      "provider": "lever",
+      "slug": "palantir"
+    },
+    {
       "company": "Goldman Sachs",
       "category": "Banks",
       "provider": "goldman",
@@ -570,6 +596,38 @@
         "finland",
         "greece"
       ]
+    },
+    {
+      "company": "Smallpdf",
+      "category": "Tech / Deep-tech",
+      "provider": "ashby",
+      "slug": "smallpdf"
+    }
+  ],
+  "_MANUAL_CHECKS": [
+    {
+      "company": "UBS",
+      "why": "Brassring — not fetchable over plain HTTP",
+      "url": "https://jobs.ubs.com/TGnewUI/Search/home/HomeWithPreLoad?PageType=JobDetails&partnerid=25008&siteid=5012",
+      "check": "Search Zurich + Senior/Lead/Staff software engineer. Beware: the public index surfaces filled/foreign reqs (job 335807 shows as Zurich but is filled and actually Qatar) — open the exact page before trusting title or location."
+    },
+    {
+      "company": "Sygnum",
+      "why": "Salesforce careers portal returns 403 to plain HTTP",
+      "url": "https://www.sygnum.com/careers/",
+      "check": "Confirm each tracked VN#### is still on the CURRENT board. Deep vacancy pages stay reachable after a role leaves the board, so a live deep page is NOT proof the role is open."
+    },
+    {
+      "company": "Vontobel",
+      "why": "public feed 404s to the harvester",
+      "url": "https://www.vontobel.com/en/about-vontobel/career/open-positions/",
+      "check": "Zurich engineering roles only. Cross-check any ref against roles[] before logging — ref 8850 is already an archived row."
+    },
+    {
+      "company": "CFM",
+      "why": "outside the ATS harvest",
+      "url": "https://www.cfm.com/careers/",
+      "check": "Paris quant/dev roles; verify the posting still exists before changing status."
     }
   ]
 }

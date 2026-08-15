@@ -347,6 +347,11 @@ function extractGoogleJD(html) {
   return [...new Set(parts)].join("\n\n").slice(0, JD_MAX);
 }
 const GOOGLE_BATCH = 6;
+// Each listing page holds ~20 results and the rest sit behind &page=N. Reading only
+// page 1 meant a Google role could be absent from the harvest while still live, so
+// harvest absence was not usable as closure evidence and every Google archival needed
+// a manual page fetch to confirm. Page through until a page adds nothing new.
+const GOOGLE_MAX_PAGES = 6;
 async function fetchGoogle(source) {
   const locations = source.locations ?? ["Zurich, Switzerland"];
   const queries = source.queries ?? ["software engineer"];
@@ -354,16 +359,27 @@ async function fetchGoogle(source) {
   const byId = new Map();
   for (const loc of locations) {
     for (const q of queries) {
-      const url =
-        "https://www.google.com/about/careers/applications/jobs/results/" +
-        `?location=${encodeURIComponent(loc)}&q=${encodeURIComponent(q)}`;
-      const { data, error } = await getText(url);
-      if (error) continue;
-      const re = /jobs\/results\/(\d{6,})-([a-z0-9-]+)/g;
-      let m;
-      while ((m = re.exec(data)) !== null) {
-        const [, id, slug] = m;
-        if (!byId.has(id)) byId.set(id, { id, slug, location: loc });
+      for (let page = 1; page <= GOOGLE_MAX_PAGES; page++) {
+        const url =
+          "https://www.google.com/about/careers/applications/jobs/results/" +
+          `?location=${encodeURIComponent(loc)}&q=${encodeURIComponent(q)}` +
+          (page > 1 ? `&page=${page}` : "");
+        const { data, error } = await getText(url);
+        if (error) break;
+        const re = /jobs\/results\/(\d{6,})-([a-z0-9-]+)/g;
+        let m;
+        let added = 0;
+        let seenOnPage = 0;
+        while ((m = re.exec(data)) !== null) {
+          const [, id, slug] = m;
+          seenOnPage++;
+          if (byId.has(id)) continue;
+          byId.set(id, { id, slug, location: loc });
+          added++;
+        }
+        // An empty page is the end of the result set; a page that repeats what we
+        // already hold means Google stopped advancing and further pages are wasted.
+        if (seenOnPage === 0 || added === 0) break;
       }
     }
   }
