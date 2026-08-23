@@ -182,6 +182,21 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 24px 64px; }
 .who .co { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .who .ro { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .loc { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Expanded rows show the company, role title and location IN FULL. Collapsed rows keep
+   the single-line ellipsis so the list stays scannable, but once a row is open there is
+   no reason to hide the rest of a long title behind "…" — and titles run past 100
+   characters ("Global Banking & Markets - Software Engineer - Vice President (Systematic
+   Market Making, FICC eTrading)"), so the clipped part is exactly the part that says
+   what the job actually is. */
+.row.open .row-line { align-items: start; }
+.row.open .who .co,
+.row.open .who .ro,
+.row.open .loc {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
 .loc.swiss { color: #aee0ff; }
 .loc.foreign { color: var(--warn); }
 .cb { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; cursor: pointer; }
