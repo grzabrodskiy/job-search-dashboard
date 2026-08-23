@@ -466,6 +466,20 @@
       "slug": "Vitol"
     },
     {
+      "company": "Avaloq",
+      "category": "Swiss Banking Tech",
+      "provider": "smartrecruiters",
+      "slug": "Avaloq1",
+      "note": "Careers site is 403 to plain HTTP, but the SmartRecruiters API is open — the slug is Avaloq1, NOT Avaloq (the bare name returns HTTP 200 with 0 postings, which looks like an empty board). Zurich + Bioggio (Ticino)."
+    },
+    {
+      "company": "Nexthink",
+      "category": "Swiss Tech",
+      "provider": "smartrecruiters",
+      "slug": "Nexthink",
+      "note": "Lausanne-HQ DEX scaleup, ~1,200 staff, real Senior/Staff Java IC ladder (Java 17, Kafka, AWS) plus AI-native product teams. Permanent contracts, English-only."
+    },
+    {
       "company": "SIX Group",
       "category": "Exchanges / Market Infrastructure",
       "provider": "successfactors",
@@ -602,6 +616,58 @@
       "category": "Tech / Deep-tech",
       "provider": "ashby",
       "slug": "smallpdf"
+    },
+    {
+      "company": "jobs.ch",
+      "category": "Aggregator",
+      "provider": "jobsch",
+      "host": "www.jobs.ch",
+      "queries": [
+        "senior software engineer",
+        "staff software engineer",
+        "lead software engineer",
+        "software engineer",
+        "platform engineer",
+        "backend engineer",
+        "java developer",
+        "applied ai engineer",
+        "machine learning engineer",
+        "quantitative developer"
+      ],
+      "locations": [
+        "Zurich",
+        "Zug",
+        "Geneva",
+        "Basel",
+        "Bern",
+        "Lausanne",
+        "Lugano",
+        "Winterthur"
+      ]
+    },
+    {
+      "company": "jobup.ch",
+      "category": "Aggregator",
+      "provider": "jobsch",
+      "host": "www.jobup.ch",
+      "queries": [
+        "senior software engineer",
+        "staff software engineer",
+        "lead software engineer",
+        "software engineer",
+        "platform engineer",
+        "backend engineer",
+        "java developer",
+        "applied ai engineer",
+        "machine learning engineer",
+        "quantitative developer"
+      ],
+      "locations": [
+        "Geneva",
+        "Lausanne",
+        "Nyon",
+        "Vaud"
+      ]
     }
   ],
   "_MANUAL_CHECKS": [
@@ -629,5 +695,54 @@
       "url": "https://www.cfm.com/careers/",
       "check": "Paris quant/dev roles; verify the posting still exists before changing status."
     }
-  ]
+  ],
+  "consultancyEmployers": [
+    "ti&m",
+    "ELCA",
+    "ELCA Informatique",
+    "Zuhlke",
+    "Zühlke",
+    "Zühlke Engineering",
+    "PRODYNA",
+    "Netcloud",
+    "AdNovum",
+    "Netcetera",
+    "Eraneos",
+    "Accenture",
+    "Capgemini",
+    "Sopra Steria",
+    "Cognizant",
+    "Infosys",
+    "TCS",
+    "Wipro",
+    "EPAM",
+    "Avanade",
+    "Deloitte",
+    "EY",
+    "KPMG",
+    "PwC",
+    "Swisslinx",
+    "Michael Page",
+    "Hays",
+    "Robert Walters",
+    "Darwin Recruitment",
+    "Experis",
+    "Randstad",
+    "Adecco",
+    "Manpower",
+    "Rocken",
+    "Nemensis"
+  ],
+  "companyAliases": {
+    "On AG": "On (On Running)",
+    "Bank Julius Bär & Co. AG": "Julius Baer",
+    "Zühlke Engineering AG": "Zuhlke",
+    "Banque Pictet & Cie SA": "Pictet",
+    "Vontobel Beteiligungen AG": "Vontobel",
+    "SIX Group AG": "SIX Group",
+    "SonarSource SA": "SonarSource",
+    "Swisscom (Schweiz) AG": "Swisscom",
+    "Google Switzerland GmbH": "Google",
+    "Zürcher Kantonalbank und ihre Tochtergesellschaften": "Zürcher Kantonalbank"
+  }
 }

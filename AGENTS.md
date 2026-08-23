@@ -18,6 +18,7 @@ them just for Codex. Use this file as the Codex wrapper.
 
 - Job postings are time-sensitive. Use current web data for searches and role verification.
 - Prefer direct employer career-site links. Job-board links are acceptable for discovery, but verify against the employer site where possible.
+- **Aggregator exception (family-approved 2026-08-23).** Harvest rows tagged `sourceType: "aggregator"` come from jobs.ch/jobup.ch and are the ONLY route to employers whose own ATS cannot be fetched — Pictet (its careers domain no longer resolves), Vontobel, Zurich Insurance and much of the Swiss mid-market. **Log these with the job-board link**, `linkStatus: UNVERIFIED`, and a `statusNote` recording that the employer-site link is unresolved; upgrade the link once the employer's own posting is located. Do NOT discard an aggregator row for lacking an employer-site link — that would lose exactly the employers nothing else covers. jobs.ch does NOT carry UBS, Sygnum or Avaloq; those stay in `_MANUAL_CHECKS`.
 - Include a direct role link in every recommendation; if only a search page is available, mark it as `Search` and note the verification gap.
 - Store and display the internal position ID whenever available. Use the employer/ATS req ID, Workday ID, Greenhouse/Lever/Ashby ID, SmartRecruiters ID, `gh_jid`, or numeric ID embedded in the role URL; write `not exposed` if none is visible.
 - Exclude roles below the candidate's `searchBrief.levelFilter`, roles requiring a language the candidate lacks, and roles that explicitly cannot sponsor when sponsorship is needed.

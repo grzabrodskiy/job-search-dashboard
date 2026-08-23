@@ -17,6 +17,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..", "..");
 const configPath = resolve(__dirname, "ats_sources.json");
 const outPath = resolve(root, "tracking/ats_candidates.json");
+// Verdicts agents have already reached on harvested candidates. Without this the same
+// few hundred rows are re-triaged from scratch every run and the budget goes on
+// re-rejecting known non-fits instead of reading genuinely new postings.
+const decisionsPath = resolve(root, "tracking/candidate_decisions.json");
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -57,6 +61,15 @@ function htmlToText(raw, max = JD_MAX) {
   t = t.replace(/<\s*br\s*\/?>/gi, "\n").replace(/<\/(p|div|li|h[1-6]|ul|ol|tr)>/gi, "\n").replace(/<[^>]+>/g, " ");
   t = decode(t).replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return t.length > max ? t.slice(0, max) + "…" : t;
+}
+
+// Reads JSON that may legitimately not exist yet (first run, or no decisions recorded).
+async function readJsonSafe(path, fallback) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return fallback;
+  }
 }
 
 async function getText(url) {
@@ -472,6 +485,81 @@ async function fetchSuccessFactors(source) {
   return { jobs };
 }
 
+// ---- Candidate identity, tagging and scoring ----
+
+// Company names arrive as legal entities — "On AG", "Bank Julius Bär & Co. AG",
+// "Zürich Versicherungs-Gesellschaft AG" — and must collapse to the same key as our own
+// labels ("On (On Running)", "Julius Baer") or an aggregator row double-logs a posting
+// the ATS harvest already carries.
+const COMPANY_NOISE = /\b(ag|sa|sarl|gmbh|ltd|limited|plc|inc|holding|holdings|group|gruppe|groupe|bank|banque|cie|co|company|schweiz|suisse|switzerland|international|beteiligungen|engineering|services|solutions)\b/g;
+// Explicit variant -> canonical map, filled from ats_sources.json. Diacritic folding and
+// suffix stripping get most of the way, but not all: "On AG" and "On (On Running)" share
+// no usable stem. An auditable alias list beats a clever heuristic that silently merges
+// two genuinely different employers.
+let COMPANY_ALIASES = new Map();
+
+// Fold diacritics to the BASE letter and collapse the German digraphs onto it too, so
+// "Bär", "Baer" and "Bar" — and "Zühlke" vs "Zuhlke" — all land on one key. Folding only
+// one way (ä -> ae) would fix Julius Baer while breaking Zühlke.
+function foldDiacritics(s) {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/ae/g, "a").replace(/oe/g, "o").replace(/ue/g, "u").replace(/ss/g, "s");
+}
+
+function normalizeCompany(name) {
+  const base = foldDiacritics(String(name || "").toLowerCase())
+    .replace(/\([^)]*\)/g, " ")   // "On (On Running)" -> "on"
+    .replace(/[&.,()\/]/g, " ")
+    .replace(COMPANY_NOISE, " ")
+    .replace(/[^a-z0-9]+/g, "");
+  return COMPANY_ALIASES.get(base) ?? base;
+}
+
+// Stable identity for a posting ACROSS harvests. internalId is the strongest signal;
+// fall back to normalized company + title where a source exposes no id. A re-listed
+// role gets a fresh internalId and so correctly re-enters as new rather than inheriting
+// a stale rejection.
+function candidateKey(c) {
+  const co = normalizeCompany(c.company);
+  const id = String(c.internalId || "").trim().toLowerCase();
+  if (id && id !== "not exposed") return `${co}|${id}`;
+  return `${co}|${String(c.role || "").toLowerCase().replace(/\s+/g, " ").trim()}`;
+}
+
+// Deterministic signals computed from data we already hold. These TAG AND RANK — they
+// never drop a row. Every silent-loss bug in this file's history (gland/England,
+// cto/Director, ", ch"/Shanghai) came from a filter deciding on its own that something
+// was irrelevant, so judgement stays with the agent and this only reorders the queue.
+const RE_DEV_FIRST = /software engineer|software developer|backend|back-end|full.?stack|platform engineer|staff engineer|principal engineer|applied ai|forward deployed|machine learning engineer|ml engineer|quant|programmer|entwickler|développeur/i;
+const RE_SENIORITY = /\b(senior|sr\.?|lead|leitende|staff|principal|head of|vice president|vp|director|architekt|architect)\b/i;
+const RE_OPS = /devops|sre\b|site reliability|security engineer|infrastructur|network engineer|\bsap\b|abap|m365|sharepoint|citrix|helpdesk|service desk|observability|kubernetes|openshift|ansible|terraform|system engineer|systems engineer|operation/i;
+const RE_CONTRACT = /external payroll|contract through|temporary|befristet|interim|freelance/i;
+const RE_WEAK_LANG = /\bc\+\+|\bc#|\.net\b/i;
+const RE_LANG_BAR = /\b(fluent|proficient|native|verhandlungssicher|fliessend)\b[^.]{0,40}\b(german|deutsch|french|français|französisch)\b|\b(german|deutsch|french)\b[^.]{0,30}\b(required|mandatory|erforderlich|vorausgesetzt)\b/i;
+
+function tagCandidate(c, consultancyKeys) {
+  const title = String(c.role || "");
+  const text = `${title}\n${c.description || ""}`;
+  const tags = [];
+  let score = 0;
+
+  if (RE_DEV_FIRST.test(title)) { tags.push("developer-first"); score += 3; }
+  if (RE_SENIORITY.test(title)) { tags.push("senior"); score += 2; }
+  if (RE_OPS.test(title)) { tags.push("ops-shaped"); score -= 3; }
+  if (consultancyKeys.has(normalizeCompany(c.company)) || /consultant|consulting/i.test(title)) {
+    tags.push("consultancy"); score -= 2;
+  }
+  // jobs.ch ships a structured language requirement; everywhere else we read the ad.
+  const structuredBar = Array.isArray(c.languageSkills)
+    && c.languageSkills.some((l) => ["de", "fr"].includes(l.language) && Number(l.level) >= 3);
+  if (structuredBar || RE_LANG_BAR.test(text)) { tags.push("language-bar"); score -= 2; }
+  if (RE_CONTRACT.test(text)) { tags.push("contract"); score -= 2; }
+  if (RE_WEAK_LANG.test(title)) { tags.push("weak-language"); score -= 1; }
+  if (c.sourceType === "aggregator") tags.push("aggregator");
+
+  return { tags, fitScore: score };
+}
+
 // Adapters take (source, filters); only Workday currently needs the filters, to
 // decide which unresolved multi-location rows are worth a detail fetch.
 // Goldman Sachs runs its own careers platform (higher.gs.com) rather than a standard
@@ -539,6 +627,66 @@ async function fetchGoldman(source) {
   return { jobs: [...byId.values()] };
 }
 
+// jobs.ch (and its Romandie sibling jobup.ch) run the same public search API, no auth.
+// This is the only route to a large slice of the Swiss market: employers whose own ATS
+// we cannot fetch at all still advertise here — Pictet, whose careers domain no longer
+// resolves in DNS, posts a dozen roles. It does NOT reach UBS, Sygnum or Avaloq, which
+// stay on _MANUAL_CHECKS.
+//
+// Rows are AGGREGATOR rows: the link is a job-board URL, not an employer career page.
+// That is a deliberate, family-approved exception to the direct-link rule — the role is
+// logged with linkStatus UNVERIFIED and the employer link resolved later, because
+// dropping the row would lose exactly the employers nothing else covers.
+const JOBSCH_ROWS = 20;   // the API rejects rows>20 with HTTP 422
+const JOBSCH_MAX_PAGES = 8;
+async function fetchJobsCh(source) {
+  const host = source.host || "www.jobs.ch";
+  const queries = source.queries ?? ["software engineer"];
+  const locations = source.locations ?? [""];
+  const byId = new Map();
+  let firstError = null;
+
+  for (const q of queries) {
+    for (const loc of locations) {
+      for (let page = 1; page <= JOBSCH_MAX_PAGES; page++) {
+        const url = `https://${host}/api/v1/public/search?query=${encodeURIComponent(q)}`
+          + (loc ? `&location=${encodeURIComponent(loc)}` : "")
+          + `&rows=${JOBSCH_ROWS}&page=${page}`;
+        const { data, error } = await getJson(url);
+        if (error) {
+          if (byId.size === 0) firstError = error;
+          break;
+        }
+        const docs = data.documents ?? [];
+        let added = 0;
+        for (const d of docs) {
+          const id = d.job_id || d.slug;
+          if (!id || byId.has(id)) continue;
+          if (d.is_active === false) continue;
+          byId.set(id, {
+            role: d.title,
+            location: d.place || "",
+            internalId: String(id),
+            // Canonical detail URL the site itself links to.
+            link: d._links?.detail_en?.href || `https://${host}/en/vacancies/detail/${id}/`,
+            description: htmlToText(d.preview || ""),
+            company: d.company_name || "",
+            // Structured requirement — feeds the language-bar tag without reading the ad.
+            languageSkills: Array.isArray(d.language_skills) ? d.language_skills : [],
+            postedAt: (d.publication_date || "").slice(0, 10),
+            sourceType: "aggregator"
+          });
+          added++;
+        }
+        if (docs.length < JOBSCH_ROWS || added === 0) break;
+        if (data.num_pages && page >= data.num_pages) break;
+      }
+    }
+  }
+  if (firstError && byId.size === 0) return { error: firstError };
+  return { jobs: [...byId.values()] };
+}
+
 const providers = {
   greenhouse: (s) => fetchGreenhouse(s.slug),
   lever: (s) => fetchLever(s.slug),
@@ -547,7 +695,8 @@ const providers = {
   workday: (s, f) => fetchWorkday(s, f),
   google: (s) => fetchGoogle(s),
   successfactors: (s) => fetchSuccessFactors(s),
-  goldman: (s) => fetchGoldman(s)
+  goldman: (s) => fetchGoldman(s),
+  jobsch: (s) => fetchJobsCh(s)
 };
 
 // Exclusions match at a WORD START, not anywhere in the string. Plain `includes`
@@ -605,6 +754,13 @@ function matches(job, filters) {
 
 async function main() {
   const config = JSON.parse(await readFile(configPath, "utf8"));
+  // variant -> canonical, both sides normalized with aliases disabled (map is empty here).
+  COMPANY_ALIASES = new Map(
+    Object.entries(config.companyAliases ?? {}).map(([variant, canonical]) => [
+      normalizeCompany(variant),
+      normalizeCompany(canonical)
+    ])
+  );
   const filters = {
     locationFilters: (config.locationFilters ?? []).map((s) => s.toLowerCase()),
     titleIncludes: (config.titleIncludes ?? []).map((s) => s.toLowerCase()),
@@ -641,8 +797,12 @@ async function main() {
     const kept = jobs.filter((j) => matches(j, sourceFilters));
     perSource[index] = {
       candidates: kept.map((j) => ({
-        company: source.company,
+        // Aggregator rows carry their own employer; ATS rows take it from the source.
+        company: j.company || source.company,
         provider: source.provider,
+        ...(j.sourceType ? { sourceType: j.sourceType } : {}),
+        ...(j.postedAt ? { postedAt: j.postedAt } : {}),
+        ...(j.languageSkills?.length ? { languageSkills: j.languageSkills } : {}),
         role: j.role,
         location: j.location,
         internalId: j.internalId,
@@ -682,14 +842,22 @@ async function main() {
   const candidates = perSource.flatMap((s) => s.candidates);
   const sourceReport = perSource.map((s) => s.report);
 
-  // Dedupe within this harvest on link, else company+role+internalId.
+  // Dedupe within this harvest. Two passes, because an aggregator re-lists roles we
+  // already pull straight from the employer's ATS under a different URL and a different
+  // legal-entity name ("On AG" vs "On (On Running)"), which the old link-only key could
+  // never catch. Employer-direct rows always win: they carry the real apply link.
   const seen = new Set();
-  const deduped = candidates.filter((c) => {
-    const key = c.link || `${c.company}|${c.role}|${c.internalId}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const byIdentity = new Map();
+  const rank = (c) => (c.sourceType === "aggregator" ? 0 : 1);
+  for (const c of candidates) {
+    const exact = c.link || `${c.company}|${c.role}|${c.internalId}`;
+    if (seen.has(exact)) continue;
+    seen.add(exact);
+    const identity = `${normalizeCompany(c.company)}|${String(c.role || "").toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
+    const held = byIdentity.get(identity);
+    if (!held || rank(c) > rank(held)) byIdentity.set(identity, c);
+  }
+  const deduped = [...byIdentity.values()];
 
   // Primary-region-first ordering. `primaryLocationFilters` (config) names the
   // candidate's top-tier target region; everything else in `locationFilters` is the
@@ -698,9 +866,50 @@ async function main() {
   // live in ats_sources.json, never in this file.
   const primaryFilters = (config.primaryLocationFilters ?? []).map((s) => s.toLowerCase());
   const isPrimary = (c) => locationMatches(String(c.location || "").toLowerCase(), primaryFilters);
-  const ordered = primaryFilters.length
-    ? [...deduped].sort((a, b) => Number(isPrimary(b)) - Number(isPrimary(a)))
-    : deduped;
+
+  // Carry `firstSeen` across harvests and mark what is genuinely new. Without this the
+  // file looks identical every run and an agent has no way to tell a posting it already
+  // rejected last week from one that appeared this morning.
+  const previous = await readJsonSafe(outPath, { candidates: [] });
+  const firstSeenByKey = new Map();
+  for (const c of previous.candidates ?? []) {
+    if (c.firstSeen) firstSeenByKey.set(candidateKey(c), c.firstSeen);
+  }
+  // Verdicts agents already reached. Stamped onto the row so the prompt can say
+  // "skip what you have already rejected unless it changed".
+  const decisions = await readJsonSafe(decisionsPath, {});
+  const today = new Date().toISOString().slice(0, 10);
+  const consultancyKeys = new Set((config.consultancyEmployers ?? []).map(normalizeCompany));
+
+  let newCount = 0;
+  for (const c of deduped) {
+    const key = candidateKey(c);
+    c.key = key;
+    c.firstSeen = firstSeenByKey.get(key) ?? today;
+    c.isNew = !firstSeenByKey.has(key);
+    if (c.isNew) newCount++;
+    const prior = decisions[key];
+    if (prior) {
+      c.priorVerdict = prior.verdict;
+      if (prior.reason) c.priorReason = prior.reason;
+      if (prior.roleId) c.priorRoleId = prior.roleId;
+      if (prior.date) c.priorDate = prior.date;
+    }
+    // Tag on the FULL description, before the region clamp truncates it.
+    const { tags, fitScore } = tagCandidate(c, consultancyKeys);
+    if (tags.length) c.tags = tags;
+    c.fitScore = fitScore + (c.isNew ? 1 : 0);
+    delete c.languageSkills; // structured input to the tags; no need to ship it onward
+  }
+
+  // Primary region still dominates the ordering; fitScore only breaks ties within a
+  // tier, so the developer-first rows rise above the ops/consultancy volume instead of
+  // being buried by source order. Nothing is removed — this is purely a queue order.
+  const ordered = [...deduped].sort((a, b) =>
+    (primaryFilters.length ? Number(isPrimary(b)) - Number(isPrimary(a)) : 0)
+    || b.fitScore - a.fitScore
+    || Number(b.isNew) - Number(a.isNew)
+  );
   const primaryCount = primaryFilters.length ? ordered.filter(isPrimary).length : 0;
 
   // Clamp descriptions only now that primary/backup is known, so top-region rows keep
@@ -715,7 +924,8 @@ async function main() {
       sourceCount: (config.sources ?? []).length,
       candidateCount: ordered.length,
       primaryCount,
-      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis. `description` keeps the START and the END of the job ad; a long one has its MIDDLE replaced by '[… middle of description elided …]'. The end is preserved deliberately, because required years, language demands and work-authorization notes live there — so judge level/language/permit from the text AFTER the marker, and treat the marker as elided boilerplate, not as a missing requirement."
+      newCount,
+      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis. `description` keeps the START and the END of the job ad; a long one has its MIDDLE replaced by '[… middle of description elided …]'. The end is preserved deliberately, because required years, language demands and work-authorization notes live there — so judge level/language/permit from the text AFTER the marker, and treat the marker as elided boilerplate, not as a missing requirement. TRIAGE ORDER: rows are sorted primary-region first, then by `fitScore`. `isNew` marks postings not present in the previous harvest and `newCount` counts them — work those FIRST. `priorVerdict`/`priorReason` carry a decision an agent already recorded in tracking/candidate_decisions.json: do NOT re-litigate a REJECTED row unless its title or description changed, and append your own new rejections to that file keyed by `key`. `tags` are deterministic hints, not verdicts — `developer-first`, `senior`, `ops-shaped`, `consultancy`, `language-bar` (German/French required), `contract` (external payroll), `weak-language` (C++/C#), `aggregator`. They rank the queue; the rubric still decides. `aggregator` rows come from a job board rather than an employer ATS: log them with linkStatus UNVERIFIED and a statusNote saying the employer-site link is unresolved, then upgrade the link when you find the employer's own posting."
     },
     sourceReport,
     candidates: ordered
