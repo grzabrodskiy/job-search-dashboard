@@ -12,9 +12,7 @@ const metaLine = document.querySelector("#metaLine");
 const controls = document.querySelector(".controls");
 const textFilter = document.querySelector("#textFilter");
 const statusFilter = document.querySelector("#statusFilter");
-const priHigh = document.querySelector("#priHigh");
-const priMed = document.querySelector("#priMed");
-const priLow = document.querySelector("#priLow");
+const priTop = document.querySelector("#priTop");
 const locSwiss = document.querySelector("#locSwiss");
 const peerFilter = document.querySelector("#peerFilter");
 const sortControl = document.querySelector("#sortControl");
@@ -174,7 +172,9 @@ function filteredRoles() {
     const term = textFilter.value.trim().toLowerCase();
     const status = statusFilter.value;
     const peer = peerFilter.value;
-    const prios = [priHigh.checked && "HIGH", priMed.checked && "MEDIUM", priLow.checked && "LOW"].filter(Boolean);
+    // One narrowing checkbox rather than three additive ones: ticked shows only the
+    // roles worth acting on, unticked shows everything (same shape as "Swiss only").
+    const prios = priTop.checked ? ["HIGH", "MEDIUM"] : [];
     const swissOnly = locSwiss.checked;
     rows = rows.filter((role) => {
       if (term && !rowText(role).includes(term)) return false;
@@ -891,7 +891,7 @@ summary.addEventListener("click", (e) => {
 });
 textFilter.addEventListener("input", render);
 statusFilter.addEventListener("change", () => { summaryFilter = null; render(); });
-[priHigh, priMed, priLow, locSwiss].forEach((cb) => cb.addEventListener("change", render));
+[priTop, locSwiss].forEach((cb) => cb.addEventListener("change", render));
 peerFilter.addEventListener("change", render);
 sortControl.addEventListener("change", render);
 runClaudeButton?.addEventListener("click", () => openRunModal("claude"));
