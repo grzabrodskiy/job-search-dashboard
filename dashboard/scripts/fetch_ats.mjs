@@ -34,6 +34,8 @@ const JD_MAX = 20000; // fetch-time ceiling, guards against pathological pages
 const JD_PRIMARY_MAX = 5000;
 const JD_BACKUP_MAX = 2800;
 const JD_ELISION = "\n\n[… middle of description elided …]\n\n";
+// Below this many characters a description is a skills list or a stub, not an ad.
+const THIN_JD = 300;
 
 // A plain head-truncation cut off exactly what the rubric needs: required years,
 // language demands and work-authorization notes live at the END of a job ad, not the
@@ -64,10 +66,14 @@ function htmlToText(raw, max = JD_MAX) {
 }
 
 // Reads JSON that may legitimately not exist yet (first run, or no decisions recorded).
+// Any OTHER failure is loud: this project lives in iCloud Drive, and an evicted
+// ("dataless") file that fails to download would otherwise silently reset every row to
+// isNew and drop the whole decision ledger for the run.
 async function readJsonSafe(path, fallback) {
   try {
     return JSON.parse(await readFile(path, "utf8"));
-  } catch {
+  } catch (err) {
+    if (err.code !== "ENOENT") console.warn(`⚠ could not read ${path}: ${err.message} — continuing without it`);
     return fallback;
   }
 }
@@ -637,54 +643,197 @@ async function fetchGoldman(source) {
 // That is a deliberate, family-approved exception to the direct-link rule — the role is
 // logged with linkStatus UNVERIFIED and the employer link resolved later, because
 // dropping the row would lose exactly the employers nothing else covers.
-const JOBSCH_ROWS = 20;   // the API rejects rows>20 with HTTP 422
-const JOBSCH_MAX_PAGES = 8;
-async function fetchJobsCh(source) {
+// 2026-08-28: `/api/v1/public/search` now answers HTTP 410 Gone with an empty body and
+// there is no v2 — the SEARCH endpoint died, and two runs read that as "jobs.ch is down"
+// and lost the whole Swiss mid-market. It is not down. Two other surfaces are live:
+//
+//   1. the SERP page `/en/vacancies/?term=…` (jobup.ch: `/en/jobs/?term=…`) server-renders
+//      a schema.org ItemList of JobPosting objects — title, employer, city, uuid, date;
+//   2. the DETAIL endpoint `/api/v1/public/search/job/<uuid>` still returns 200 with the
+//      full record: `template_text` (the whole ad, not the old truncated `preview`),
+//      `language_skills`, `place`, `is_active` and `application_url` — the EMPLOYER's own
+//      apply link, which is what upgrades an aggregator row to a verifiable one.
+//
+// So: list from the SERP's structured JSON, then spend one detail request per row that
+// passes the title filter. Listing rows are cheap and details are not, which is why the
+// filter runs in between — same reason the Workday adapter takes `filters`.
+//
+// 2026-09-28 — COVERAGE. Search terms are OR-matched and relevance-ranked ("senior
+// software engineer" = 1,730 hits), so reading 4 pages per term sampled the top ~5% and
+// reached about half of the relevant board. Two listing modes now:
+//   - `categories`: the board's own IT category (jobs.ch 106, jobup.ch 702 — ~1,600 and
+//     ~1,000 postings), paged to the end. This is the complete IT market and is fewer
+//     requests than the old term x city grid.
+//   - `queries`: a few pages per term, for roles employers file OUTSIDE the IT category
+//     (Pictet, CERN, SonarSource, Vitol and the quant desks all post under banking,
+//     research or industry categories).
+// The page count comes from the SERP's embedded search state (`numPages`), not from
+// "did this page add anything": with terms running concurrently, a page full of rows
+// another term already returned said nothing about whether the next page was empty.
+const JOBSCH_QUERY_PAGES = 5;
+const JOBSCH_CATEGORY_MAX_PAGES = 150;   // guard: jobs.ch IT is ~82 pages today
+const JOBSCH_SERP_CONCURRENCY = 6;
+const JOBSCH_DETAIL_CONCURRENCY = 8;
+// Detail requests are ~20ms and never failed in testing. The old 400 cap, spent newest-
+// first, left 131 rows with no description on 2026-09-27 — and a row with no JD cannot
+// clear the rubric, so it was rejected instead of read. Cover every title-passing row.
+const JOBSCH_MAX_DETAILS = 2000;
+const COUNTRY_NAMES = { CH: "Switzerland", LI: "Liechtenstein", DE: "Germany", FR: "France", AT: "Austria", IT: "Italy" };
+
+function jobsChSearchPath(host) {
+  return host.includes("jobup") ? "/en/jobs/" : "/en/vacancies/";
+}
+
+// The SERP carries exactly one ld+json <script>, holding an array of schema.org objects.
+// The one we want is the ItemList; the others are WebSite/CollectionPage/BreadcrumbList.
+function parseJobsChSerp(html) {
+  const block = html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/);
+  if (!block) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(block[1]);
+  } catch {
+    return [];
+  }
+  const list = (Array.isArray(parsed) ? parsed : [parsed]).find((o) => o?.["@type"] === "ItemList");
+  return (list?.itemListElement ?? [])
+    .map((e) => e?.item)
+    .filter((it) => it?.["@type"] === "JobPosting");
+}
+
+// The search state embedded in the page carries the real page count next to its hash.
+// Other "numPages" keys on the page belong to unrelated widgets and read 0 or 1.
+function parseJobsChNumPages(html) {
+  const m = html.match(/"numPages":(\d+),"searchHash"/);
+  return m ? Number(m[1]) : 0;
+}
+
+// Always name the country. These boards list Swiss towns in their local spelling
+// ("Genf", "Baden", "Cham", "Carouge") and a town-name allow-list can never be complete:
+// across the full IT category it rejected 514 of 815 title-passing rows (2026-09-28). Every posting carries a
+// country code, and "Switzerland" is what the location filter actually needs.
+function jobsChLocation(city, canton, countryCode) {
+  const country = COUNTRY_NAMES[countryCode] || countryCode || "";
+  const place = [city, canton ? `(${canton})` : ""].filter(Boolean).join(" ");
+  return [place, country].filter(Boolean).join(", ");
+}
+
+async function fetchJobsCh(source, filters) {
   const host = source.host || "www.jobs.ch";
-  const queries = source.queries ?? ["software engineer"];
-  const locations = source.locations ?? [""];
+  const path = source.searchPath || jobsChSearchPath(host);
+  const queries = source.queries ?? [];
+  const categories = source.categories ?? [];
   const byId = new Map();
   let firstError = null;
+  let serpFailures = 0;
 
-  for (const q of queries) {
-    for (const loc of locations) {
-      for (let page = 1; page <= JOBSCH_MAX_PAGES; page++) {
-        const url = `https://${host}/api/v1/public/search?query=${encodeURIComponent(q)}`
-          + (loc ? `&location=${encodeURIComponent(loc)}` : "")
-          + `&rows=${JOBSCH_ROWS}&page=${page}`;
-        const { data, error } = await getJson(url);
-        if (error) {
-          if (byId.size === 0) firstError = error;
-          break;
-        }
-        const docs = data.documents ?? [];
-        let added = 0;
-        for (const d of docs) {
-          const id = d.job_id || d.slug;
-          if (!id || byId.has(id)) continue;
-          if (d.is_active === false) continue;
-          byId.set(id, {
-            role: d.title,
-            location: d.place || "",
-            internalId: String(id),
-            // Canonical detail URL the site itself links to.
-            link: d._links?.detail_en?.href || `https://${host}/en/vacancies/detail/${id}/`,
-            description: htmlToText(d.preview || ""),
-            company: d.company_name || "",
-            // Structured requirement — feeds the language-bar tag without reading the ad.
-            languageSkills: Array.isArray(d.language_skills) ? d.language_skills : [],
-            postedAt: (d.publication_date || "").slice(0, 10),
-            sourceType: "aggregator"
-          });
-          added++;
-        }
-        if (docs.length < JOBSCH_ROWS || added === 0) break;
-        if (data.num_pages && page >= data.num_pages) break;
-      }
+  async function serpPage(params, page) {
+    const url = `https://${host}${path}?${params}&page=${page}`;
+    let res = await getText(url);
+    if (res.error) res = await getText(url);   // one retry: a lost page is up to 20 lost rows
+    if (res.error) {
+      serpFailures++;
+      if (byId.size === 0) firstError = res.error;
+      return { posts: [], numPages: 0 };
+    }
+    return { posts: parseJobsChSerp(res.data), numPages: parseJobsChNumPages(res.data) };
+  }
+
+  function absorb(posts) {
+    for (const p of posts) {
+      const id = p.identifier?.value || (p.url || "").match(/detail\/([0-9a-f-]{30,})/)?.[1];
+      if (!id || byId.has(id)) continue;
+      const addr = p.jobLocation?.address ?? {};
+      byId.set(id, {
+        role: p.title,
+        location: jobsChLocation(addr.addressLocality, "", addr.addressCountry || "CH"),
+        internalId: String(id),
+        // Canonical detail URL the site itself links to.
+        link: p.url || `https://${host}${path}detail/${id}/`,
+        description: "",
+        company: p.hiringOrganization?.name || "",
+        languageSkills: [],
+        postedAt: (p.datePosted || "").slice(0, 10),
+        sourceType: "aggregator"
+      });
     }
   }
+
+  // Page 1 of every listing first (it reports the page count), then every remaining
+  // page through one shared pool.
+  const listings = [
+    ...categories.map((c) => ({ params: `category=${encodeURIComponent(c)}`, cap: JOBSCH_CATEGORY_MAX_PAGES })),
+    ...queries.map((q) => ({ params: `term=${encodeURIComponent(q)}`, cap: JOBSCH_QUERY_PAGES }))
+  ];
+  const firstPages = await Promise.all(listings.map((l) => serpPage(l.params, 1)));
+  const rest = [];
+  listings.forEach((l, i) => {
+    absorb(firstPages[i].posts);
+    const last = Math.min(l.cap, firstPages[i].numPages);
+    for (let page = 2; page <= last; page++) rest.push({ params: l.params, page });
+  });
+  let nextPage = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(JOBSCH_SERP_CONCURRENCY, rest.length) }, async () => {
+      while (nextPage < rest.length) {
+        const { params, page } = rest[nextPage++];
+        absorb((await serpPage(params, page)).posts);
+      }
+    })
+  );
   if (firstError && byId.size === 0) return { error: firstError };
-  return { jobs: [...byId.values()] };
+
+  // Enrich every row that could survive the title filter. Order by how promising the
+  // title looks, then by date, so if the ceiling is ever reached it cuts the weakest
+  // rows rather than the oldest.
+  const rows = [...byId.values()];
+  const promise = (r) => Number(RE_DEV_FIRST.test(r.role)) * 2 + Number(RE_SENIORITY.test(r.role));
+  const passing = (filters ? rows.filter((r) => titleAllowed(r.role, filters)) : rows)
+    .sort((a, b) => promise(b) - promise(a) || String(b.postedAt).localeCompare(String(a.postedAt)));
+  const wanted = passing.slice(0, JOBSCH_MAX_DETAILS);
+  let detailFailures = 0;
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(JOBSCH_DETAIL_CONCURRENCY, wanted.length) }, async () => {
+      while (next < wanted.length) {
+        const row = wanted[next++];
+        const url = `https://${host}/api/v1/public/search/job/${row.internalId}`;
+        let res = await getJson(url);
+        if (res.error) res = await getJson(url);
+        const { data, error } = res;
+        if (error || !data) {
+          detailFailures++;
+          continue;
+        }
+        if (data.is_active === false) {
+          byId.delete(row.internalId);
+          continue;
+        }
+        row.description = htmlToText(data.template_text || "");
+        // Rows whose listing omitted the city (a quarter of the IT category) get it here.
+        const loc = Array.isArray(data.locations) ? data.locations[0] : null;
+        row.location = loc
+          ? jobsChLocation(loc.city || data.place, loc.cantonCode, loc.countryCode || "CH")
+          : data.place ? jobsChLocation(data.place, "", "CH") : row.location;
+        row.company = data.company_name || row.company;
+        // Structured requirement — feeds the language-bar tag without reading the ad.
+        if (Array.isArray(data.language_skills)) row.languageSkills = data.language_skills;
+        // The employer's own apply URL. Aggregator rows are logged UNVERIFIED precisely
+        // because they lack one; when jobs.ch exposes it, carry it so the agent can
+        // resolve the employer-site link instead of filing another verification gap.
+        const employer = data.application_url || data.external_url || "";
+        if (employer && !employer.includes(host)) row.employerLink = employer;
+      }
+    })
+  );
+  // Partial losses are not errors (the rows that did arrive are real), but they must be
+  // visible in the log — a silent gap is how this adapter lost half its coverage.
+  const gaps = [
+    serpFailures && `${serpFailures} listing page(s) failed`,
+    detailFailures && `${detailFailures} row(s) without description`,
+    passing.length > JOBSCH_MAX_DETAILS && `detail cap ${JOBSCH_MAX_DETAILS} reached (${passing.length} rows)`
+  ].filter(Boolean);
+  return { jobs: [...byId.values()], ...(gaps.length ? { warning: gaps.join("; ") } : {}) };
 }
 
 const providers = {
@@ -696,7 +845,7 @@ const providers = {
   google: (s) => fetchGoogle(s),
   successfactors: (s) => fetchSuccessFactors(s),
   goldman: (s) => fetchGoldman(s),
-  jobsch: (s) => fetchJobsCh(s)
+  jobsch: (s, f) => fetchJobsCh(s, f)
 };
 
 // Exclusions match at a WORD START, not anywhere in the string. Plain `includes`
@@ -789,7 +938,7 @@ async function main() {
     const sourceFilters = wider
       ? { ...filters, locationFilters: source.locationFilters.map((s) => s.toLowerCase()) }
       : filters;
-    const { jobs, error } = await provider(source, sourceFilters);
+    const { jobs, error, warning } = await provider(source, sourceFilters);
     if (error) {
       perSource[index] = { report: { ...source, fetched: 0, kept: 0, error }, candidates: [] };
       return;
@@ -807,6 +956,9 @@ async function main() {
         location: j.location,
         internalId: j.internalId,
         link: j.link,
+        // Aggregator rows only: the employer's own apply URL when the board exposes it,
+        // so the UNVERIFIED board link can be upgraded without a separate hunt.
+        ...(j.employerLink ? { employerLink: j.employerLink } : {}),
         // Full JD text (Greenhouse/Lever/Ashby) so agents can score/verify/write
         // cover letters without web fetches. Empty for sources that don't expose it.
         description: j.description || "",
@@ -824,6 +976,7 @@ async function main() {
         provider: source.provider,
         fetched: jobs.length,
         kept: kept.length,
+        ...(warning ? { warning } : {}),
         allInternalIds: jobs.map((j) => String(j.internalId || "")).filter(Boolean)
       }
     };
@@ -842,22 +995,39 @@ async function main() {
   const candidates = perSource.flatMap((s) => s.candidates);
   const sourceReport = perSource.map((s) => s.report);
 
-  // Dedupe within this harvest. Two passes, because an aggregator re-lists roles we
-  // already pull straight from the employer's ATS under a different URL and a different
-  // legal-entity name ("On AG" vs "On (On Running)"), which the old link-only key could
-  // never catch. Employer-direct rows always win: they carry the real apply link.
+  // Dedupe within this harvest.
+  //  1. Same posting: same link, or same employer + requisition id. jobs.ch and jobup.ch
+  //     share ids for a cross-posted ad, so this collapses the two boards' copies.
+  //  2. An aggregator copy of a posting we already pull from the employer's own ATS: same
+  //     employer (legal-entity names normalised) + same title. The employer-direct row
+  //     wins because it carries the real apply link.
+  // Title matching is ONLY used for (2). Two direct rows, or two board rows, with the
+  // same title but different ids are different postings — Salesforce's Zurich and Munich
+  // "Senior Forward Deployed Engineer", Pictet's two "Software Engineer" ads — and the
+  // old company+title key silently kept one and hid the other.
   const seen = new Set();
-  const byIdentity = new Map();
-  const rank = (c) => (c.sourceType === "aggregator" ? 0 : 1);
+  const unique = [];
   for (const c of candidates) {
-    const exact = c.link || `${c.company}|${c.role}|${c.internalId}`;
-    if (seen.has(exact)) continue;
-    seen.add(exact);
-    const identity = `${normalizeCompany(c.company)}|${String(c.role || "").toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
-    const held = byIdentity.get(identity);
-    if (!held || rank(c) > rank(held)) byIdentity.set(identity, c);
+    const keys = [c.link, candidateKey(c)].filter(Boolean);
+    if (keys.some((k) => seen.has(k))) continue;
+    keys.forEach((k) => seen.add(k));
+    unique.push(c);
   }
-  const deduped = [...byIdentity.values()];
+  const titleIdentity = (c) =>
+    `${normalizeCompany(c.company)}|${String(c.role || "").toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
+  const directTitles = new Set(unique.filter((c) => c.sourceType !== "aggregator").map(titleIdentity));
+  // The boards also re-post one ad under a second id (jobs.ch + jobup.ch, or a refresh).
+  // Among BOARD rows only, same employer + title + town is the same job.
+  const boardTown = (c) => foldDiacritics(String(c.location || "").toLowerCase()).split(/[,(]/)[0].trim();
+  const boardSeen = new Set();
+  const deduped = unique.filter((c) => {
+    if (c.sourceType !== "aggregator") return true;
+    if (directTitles.has(titleIdentity(c))) return false;
+    const k = `${titleIdentity(c)}|${boardTown(c)}`;
+    if (boardSeen.has(k)) return false;
+    boardSeen.add(k);
+    return true;
+  });
 
   // Primary-region-first ordering. `primaryLocationFilters` (config) names the
   // candidate's top-tier target region; everything else in `locationFilters` is the
@@ -872,8 +1042,10 @@ async function main() {
   // rejected last week from one that appeared this morning.
   const previous = await readJsonSafe(outPath, { candidates: [] });
   const firstSeenByKey = new Map();
+  const previousByKey = new Map();
   for (const c of previous.candidates ?? []) {
     if (c.firstSeen) firstSeenByKey.set(candidateKey(c), c.firstSeen);
+    previousByKey.set(candidateKey(c), c);
   }
   // Verdicts agents already reached. Stamped onto the row so the prompt can say
   // "skip what you have already rejected unless it changed".
@@ -882,6 +1054,7 @@ async function main() {
   const consultancyKeys = new Set((config.consultancyEmployers ?? []).map(normalizeCompany));
 
   let newCount = 0;
+  let reopenedCount = 0;
   for (const c of deduped) {
     const key = candidateKey(c);
     c.key = key;
@@ -894,11 +1067,25 @@ async function main() {
       if (prior.reason) c.priorReason = prior.reason;
       if (prior.roleId) c.priorRoleId = prior.roleId;
       if (prior.date) c.priorDate = prior.date;
+      // How much ad text the deciding agent had: carried forward while the decision
+      // stands, otherwise taken from the harvest that decision was made on (the previous
+      // file). A rejection reached on a title and an empty description is not a verdict
+      // on the job, and "never re-litigate a REJECTED row" turned it into a permanent
+      // one — 107 rows on 2026-09-27. Reopen it once the full ad has arrived.
+      const prev = previousByKey.get(key);
+      c.decidedDescLen = prev?.priorDate === prior.date && Number.isFinite(prev?.decidedDescLen)
+        ? prev.decidedDescLen
+        : String((prev ?? c).description || "").length;
+      if (prior.verdict === "REJECTED" && c.decidedDescLen < THIN_JD && String(c.description || "").length >= THIN_JD) {
+        c.priorVerdict = "REOPENED";
+        c.reopenReason = "rejected without the job description, which is now available";
+        reopenedCount++;
+      }
     }
     // Tag on the FULL description, before the region clamp truncates it.
     const { tags, fitScore } = tagCandidate(c, consultancyKeys);
     if (tags.length) c.tags = tags;
-    c.fitScore = fitScore + (c.isNew ? 1 : 0);
+    c.fitScore = fitScore + (c.isNew || c.priorVerdict === "REOPENED" ? 1 : 0);
     delete c.languageSkills; // structured input to the tags; no need to ship it onward
   }
 
@@ -925,7 +1112,9 @@ async function main() {
       candidateCount: ordered.length,
       primaryCount,
       newCount,
-      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis. `description` keeps the START and the END of the job ad; a long one has its MIDDLE replaced by '[… middle of description elided …]'. The end is preserved deliberately, because required years, language demands and work-authorization notes live there — so judge level/language/permit from the text AFTER the marker, and treat the marker as elided boilerplate, not as a missing requirement. TRIAGE ORDER: rows are sorted primary-region first, then by `fitScore`. `isNew` marks postings not present in the previous harvest and `newCount` counts them — work those FIRST. `priorVerdict`/`priorReason` carry a decision an agent already recorded in tracking/candidate_decisions.json: do NOT re-litigate a REJECTED row unless its title or description changed, and append your own new rejections to that file keyed by `key`. `tags` are deterministic hints, not verdicts — `developer-first`, `senior`, `ops-shaped`, `consultancy`, `language-bar` (German/French required), `contract` (external payroll), `weak-language` (C++/C#), `aggregator`. They rank the queue; the rubric still decides. `aggregator` rows come from a job board rather than an employer ATS: log them with linkStatus UNVERIFIED and a statusNote saying the employer-site link is unresolved, then upgrade the link when you find the employer's own posting."
+      reopenedCount,
+      undecidedCount: ordered.filter((c) => !c.priorVerdict || c.priorVerdict === "REOPENED").length,
+      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis. `description` keeps the START and the END of the job ad; a long one has its MIDDLE replaced by '[… middle of description elided …]'. The end is preserved deliberately, because required years, language demands and work-authorization notes live there — so judge level/language/permit from the text AFTER the marker, and treat the marker as elided boilerplate, not as a missing requirement. TRIAGE ORDER: rows are sorted primary-region first, then by `fitScore`. `isNew` marks postings not present in the previous harvest and `newCount` counts them — work those FIRST. `priorVerdict`/`priorReason` carry a decision an agent already recorded in tracking/candidate_decisions.json: do NOT re-litigate a REJECTED row unless its title or description changed, and append your own new rejections to that file keyed by `key`. `priorVerdict: \"REOPENED\"` (see `reopenReason`, counted by `reopenedCount`) means an earlier rejection was made without the job description and the full ad has since arrived — triage it exactly like an isNew row. `undecidedCount` is the size of the queue that still needs a verdict. `tags` are deterministic hints, not verdicts — `developer-first`, `senior`, `ops-shaped`, `consultancy`, `language-bar` (German/French required), `contract` (external payroll), `weak-language` (C++/C#), `aggregator`. They rank the queue; the rubric still decides. `aggregator` rows come from a job board rather than an employer ATS: log them with linkStatus UNVERIFIED and a statusNote saying the employer-site link is unresolved, then upgrade the link when you find the employer's own posting."
     },
     sourceReport,
     candidates: ordered
@@ -938,8 +1127,15 @@ async function main() {
   console.log(
     `ATS harvest: ${ordered.length} candidates (${primaryCount} in primary region, listed first) from ${ok}/${sourceReport.length} sources -> tracking/ats_candidates.json`
   );
+  if (reopenedCount) console.log(`  ${reopenedCount} earlier rejection(s) reopened: decided without a JD, full ad now available`);
+  // A board that returned postings last run and none now has almost always moved ATS
+  // or changed its API (Frontify: Lever -> Ashby) — it reports 0/0 with no error.
+  const previouslyFetched = new Map((previous.sourceReport ?? []).map((s) => [`${s.company}|${s.provider}`, s.fetched]));
   for (const s of sourceReport) {
-    console.log(`  ${s.error ? "✗" : "✓"} ${s.company} (${s.provider}): ${s.error ? s.error : `${s.kept}/${s.fetched} kept`}`);
+    const before = previouslyFetched.get(`${s.company}|${s.provider}`);
+    const dropped = !s.error && s.fetched === 0 && before > 0 ? ` ⚠ fetched ${before} last run — board moved or API changed?` : "";
+    const warn = s.warning ? ` ⚠ ${s.warning}` : "";
+    console.log(`  ${s.error ? "✗" : "✓"} ${s.company} (${s.provider}): ${s.error ? s.error : `${s.kept}/${s.fetched} kept`}${dropped}${warn}`);
   }
 }
 
