@@ -574,6 +574,32 @@
       ]
     },
     {
+      "company": "Lombard Odier",
+      "category": "Private Banks",
+      "provider": "workday",
+      "slug": "lombardodier/Lombard_Odier_Careers",
+      "host": "lombardodier.wd3.myworkdayjobs.com",
+      "queries": [
+        ""
+      ],
+      "_note": "Added 2026-09-28 (Claude) from the tenant path surfaced in search; the adapter was NOT exercised in that run (outbound POST/WebFetch were both blocked), so confirm the next harvest returns rows. Geneva engineering supply looked ops-heavy at the time (M365 collaboration, IT production/scheduling, systems engineering)."
+    },
+    {
+      "company": "Glencore (Baar HQ)",
+      "category": "Commodity Trading",
+      "provider": "greenhouse",
+      "slug": "tlgglencorebaar",
+      "host": "boards-api.eu.greenhouse.io",
+      "_note": "Added 2026-09-28 (Claude); corrected 2026-09-29 after the standard API returned 404. The board is EU-hosted, so fetch through boards-api.eu.greenhouse.io. Only graduate programmes were visible at the time; kept for the Zug senior-engineering footprint."
+    },
+    {
+      "company": "Glencore UK",
+      "category": "Commodity Trading",
+      "provider": "greenhouse",
+      "slug": "glencoreuk",
+      "_note": "Added 2026-09-28 (Claude). London-weighted, so the location filter will drop most rows; kept alongside the Baar board because Glencore splits engineering reqs across the two."
+    },
+    {
       "company": "Vontobel",
       "category": "Private Banks",
       "provider": "workday",

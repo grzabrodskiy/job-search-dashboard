@@ -117,10 +117,14 @@ async function getJson(url, { method = "GET", body } = {}) {
 
 // ---- Provider adapters: normalize to {role, location, internalId, link} ----
 
-async function fetchGreenhouse(slug) {
+async function fetchGreenhouse(source) {
+  const slug = typeof source === "string" ? source : source.slug;
+  const host = typeof source === "string"
+    ? "boards-api.greenhouse.io"
+    : (source.host ?? "boards-api.greenhouse.io");
   // content=true returns the full job description for every posting in one call.
   const { data, error } = await getJson(
-    `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs?content=true`
+    `https://${host}/v1/boards/${slug}/jobs?content=true`
   );
   if (error) return { error };
   return {
@@ -837,7 +841,7 @@ async function fetchJobsCh(source, filters) {
 }
 
 const providers = {
-  greenhouse: (s) => fetchGreenhouse(s.slug),
+  greenhouse: (s) => fetchGreenhouse(s),
   lever: (s) => fetchLever(s.slug),
   ashby: (s) => fetchAshby(s.slug),
   smartrecruiters: (s) => fetchSmartRecruiters(s.slug),
@@ -1120,10 +1124,18 @@ async function main() {
     candidates: ordered
   };
 
+  const ok = sourceReport.filter((s) => !s.error).length;
+  if (ok === 0 && (previous.candidates ?? []).length > 0) {
+    console.error(
+      `fetch_ats failed: all ${sourceReport.length} sources failed; preserving the previous ${previous.candidates.length}-candidate snapshot`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, JSON.stringify(out, null, 2) + "\n", "utf8");
 
-  const ok = sourceReport.filter((s) => !s.error).length;
   console.log(
     `ATS harvest: ${ordered.length} candidates (${primaryCount} in primary region, listed first) from ${ok}/${sourceReport.length} sources -> tracking/ats_candidates.json`
   );
