@@ -9,6 +9,7 @@ let companyStats = new Map(); // company (lowercase) -> { applied, rejected }
 const content = document.querySelector("#content");
 const summary = document.querySelector("#summary");
 const metaLine = document.querySelector("#metaLine");
+const runBanner = document.querySelector("#runBanner");
 const controls = document.querySelector(".controls");
 const textFilter = document.querySelector("#textFilter");
 const statusFilter = document.querySelector("#statusFilter");
@@ -160,10 +161,15 @@ function baseRolesForTab() {
   if (activeTab === "best") return roles.filter((r) => activeStatuses.has(computeStatus(r)));
   return roles; // all
 }
+// "Open" means still actionable, so it covers NEW roles too; every other status is exact.
+function matchesStatus(role, status) {
+  const s = computeStatus(role);
+  return status === "OPEN" ? activeStatuses.has(s) : s === status;
+}
 function matchesSummaryFilter(role) {
   if (!summaryFilter) return true;
   if (summaryFilter === "unreviewed") return !role.peerReviewed;
-  return computeStatus(role) === summaryFilter;
+  return matchesStatus(role, summaryFilter);
 }
 function filteredRoles() {
   let rows = baseRolesForTab();
@@ -177,7 +183,7 @@ function filteredRoles() {
     rows = rows.filter((role) => {
       if (term && !rowText(role).includes(term)) return false;
       if (!matchesSummaryFilter(role)) return false;
-      if (status && computeStatus(role) !== status) return false;
+      if (status && !matchesStatus(role, status)) return false;
       if (prios.length && !prios.includes(role.priority)) return false;
       if (swissOnly && !isSwiss(role.location)) return false;
       return true;
@@ -206,6 +212,7 @@ function renderSummary() {
     if (!r.peerReviewed) acc.unreviewed += 1;
     return acc;
   }, { total: 0, unreviewed: 0 });
+  counts.OPEN = (counts.OPEN ?? 0) + (counts.NEW ?? 0); // the Open card filters NEW + OPEN
   // Best jobs only ever contains NEW/OPEN, so only show cards that can actually filter it.
   const metrics = activeTab === "best"
     ? [
@@ -475,6 +482,24 @@ function latestRunText() {
     Date.parse(r.finishedAt || r.startedAt || r.createdAt || 0) > Date.parse(best.finishedAt || best.startedAt || best.createdAt || 0) ? r : best);
   return `last run: ${formatRunDate(latest.finishedAt || latest.startedAt || latest.createdAt)}${latest.status ? ` (${latest.status.toLowerCase()})` : ""}`;
 }
+// Small banner under the top bar while any request is RUNNING; refreshed by the poll.
+function renderRunBanner() {
+  const running = (requests?.requests ?? []).filter((r) => r.status === "RUNNING");
+  runBanner.hidden = !running.length;
+  if (!running.length) { runBanner.innerHTML = ""; return; }
+  const now = new Date().toISOString();
+  runBanner.innerHTML = running.map((r) => {
+    const agent = r.assignedTo ? r.assignedTo[0].toUpperCase() + r.assignedTo.slice(1) : "";
+    const what = r.type && r.type.endsWith("FULL_RUN") ? `${agent || "Agent"} run` : (r.title || r.type || "Job");
+    const elapsed = runDuration(r.startedAt, now);
+    const details = [runModelEffort(r), r.startedAt ? `started ${formatRunDate(r.startedAt)}${elapsed ? ` (${elapsed} ago)` : ""}` : ""].filter(Boolean).join(" · ");
+    return `<div class="run-banner-item">
+      <span class="run-dot" aria-hidden="true"></span>
+      <b>${escapeHtml(what)} in progress</b>${details ? `<span class="small">${escapeHtml(details)}</span>` : ""}
+      ${r.logPath ? `<a class="link-sm" href="/api/request-log?id=${escapeHtml(r.id)}" target="_blank" rel="noopener noreferrer">Log</a>` : ""}
+    </div>`;
+  }).join("");
+}
 function updateMeta() {
   const roles = data.roles ?? [];
   const apps = roles.filter((r) => computeStatus(r) === "APPLIED").length;
@@ -646,6 +671,7 @@ async function fillRunHealth() {
 
 function render() {
   updateMeta();
+  renderRunBanner();
   controls.style.display = isRolesTab() ? "" : "none";
   statusFilter.innerHTML = optionHtml(statusOptions, statusFilter.value, true);
   renderSummary();
@@ -711,6 +737,7 @@ async function refreshRequests() {
   if (!res.ok) return;
   requests = await res.json();
   updateMeta();
+  renderRunBanner();
   if (activeTab === "requests") renderRequests();
 }
 

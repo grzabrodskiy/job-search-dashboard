@@ -69,6 +69,13 @@ button.primary.dirty { box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.25); }
 #runClaudeButton, #runCodexButton { font-weight: 600; }
 .phone { font-family: ui-monospace, monospace; font-size: 13px; background: var(--bg-soft); color: var(--text); }
 .phone:hover { background: var(--accent-soft); border-color: var(--accent); }
+.run-banner { display: flex; flex-direction: column; gap: 4px; padding: 8px 24px; background: var(--warn-soft); border-bottom: 1px solid #5c4813; color: #ffe2a3; font-size: 13px; }
+.run-banner[hidden] { display: none; }
+.run-banner-item { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.run-banner .small { color: #e6cf98; }
+.run-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); animation: run-pulse 1.4s ease-in-out infinite; }
+@keyframes run-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .run-dot { animation: none; } }
 .phone.copied { background: var(--go-soft); border-color: var(--go); color: #b6f4dd; }
 .save-status { display: inline-flex; align-items: center; font-size: 12px; padding: 0 6px; color: var(--muted); min-width: 64px; }
 .save-status.saving { color: var(--warn); }
@@ -362,4 +369,5 @@ button.primary:disabled, .cl-actions button:disabled { opacity: 0.5; cursor: def
   .card-side { border-left: none; border-top: 1px solid var(--border); padding-left: 0; padding-top: 14px; }
   .req { grid-template-columns: 1fr; }
   .modal-body { grid-template-columns: 1fr; }
+  .run-banner { padding: 8px 16px; }
 }
