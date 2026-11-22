@@ -22,6 +22,7 @@ them just for Codex. Use this file as the Codex wrapper.
 - Include a direct role link in every recommendation; if only a search page is available, mark it as `Search` and note the verification gap.
 - Store and display the internal position ID whenever available. Use the employer/ATS req ID, Workday ID, Greenhouse/Lever/Ashby ID, SmartRecruiters ID, `gh_jid`, or numeric ID embedded in the role URL; write `not exposed` if none is visible.
 - Exclude roles below the candidate's `searchBrief.levelFilter`, roles requiring a language the candidate lacks, and roles that explicitly cannot sponsor when sponsorship is needed.
+- Exclude postings whose ad is written entirely in German unless it explicitly says German is not required (e.g. "no German required", "Deutschkenntnisse nicht erforderlich") — the harvester tags these `german-only`.
 - **Current-employer roles:** in scope as standard external applications, but follow `currentEmployerExclusion` in `config/candidate.json` — do not use the employer's internal mobility platform and do not surface the candidate's own current role/team.
 - Treat sponsorship as `likely`, `unclear`, or `excluded`; do not overstate it when the job ad is silent.
 - Keep facts about the candidate truthful and grounded in `config/candidate.json`, the CV, and existing tracking files.

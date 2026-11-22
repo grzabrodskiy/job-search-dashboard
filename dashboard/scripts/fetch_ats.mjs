@@ -537,6 +537,21 @@ const RE_CONTRACT = /external payroll|contract through|temporary|befristet|inter
 const RE_WEAK_LANG = /\bc\+\+|\bc#|\.net\b/i;
 const RE_LANG_BAR = /\b(fluent|proficient|native|verhandlungssicher|fliessend)\b[^.]{0,40}\b(german|deutsch|french|français|französisch)\b|\b(german|deutsch|french)\b[^.]{0,30}\b(required|mandatory|erforderlich|vorausgesetzt)\b/i;
 
+// German-only ads are excluded by the rubric (family decision 2026-11-22) unless the ad
+// explicitly says German is not required. "Written in German" is decided by function-word
+// counts rather than one keyword, so an English ad that quotes a German benefit line, or a
+// bilingual ad, is not caught. The waiver list is deliberately narrow: only an explicit
+// "no German needed" statement lifts the tag — "English-speaking team" does not.
+const RE_DE_WORDS = /\b(und|der|die|das|mit|für|wir|sie|ist|von|zu|den|dem|des|auf|ein|eine|einen|im|bei|oder|nicht|ihre|unsere|uns|als|sowie|werden|bist|du|dich|dein|deine)\b/gi;
+const RE_EN_WORDS = /\b(the|and|with|for|you|we|our|of|to|in|is|are|will|your|this|that|on|as|be|an)\b/gi;
+const RE_NO_GERMAN_NEEDED = /\b(no|without)\s+german\b[^.]{0,30}\b(required|needed|necessary|knowledge|skills)\b|\bgerman\b[^.]{0,30}\b(is\s+)?not\s+(required|needed|necessary|a\s+requirement|mandatory)\b|\b(keine|ohne)\s+deutschkenntnisse\b|\bdeutsch(kenntnisse)?\b[^.]{0,30}\bnicht\s+(erforderlich|notwendig|zwingend|vorausgesetzt|nötig)\b/i;
+
+function isGermanOnlyAd(text) {
+  const de = (text.match(RE_DE_WORDS) || []).length;
+  const en = (text.match(RE_EN_WORDS) || []).length;
+  return de >= 15 && de > 3 * en;
+}
+
 function tagCandidate(c, consultancyKeys) {
   const title = String(c.role || "");
   const text = `${title}\n${c.description || ""}`;
@@ -553,6 +568,7 @@ function tagCandidate(c, consultancyKeys) {
   const structuredBar = Array.isArray(c.languageSkills)
     && c.languageSkills.some((l) => ["de", "fr"].includes(l.language) && Number(l.level) >= 3);
   if (structuredBar || RE_LANG_BAR.test(text)) { tags.push("language-bar"); score -= 2; }
+  if (isGermanOnlyAd(text) && !RE_NO_GERMAN_NEEDED.test(text)) { tags.push("german-only"); score -= 4; }
   if (RE_CONTRACT.test(text)) { tags.push("contract"); score -= 2; }
   if (RE_WEAK_LANG.test(title)) { tags.push("weak-language"); score -= 1; }
   if (c.sourceType === "aggregator") tags.push("aggregator");
@@ -925,7 +941,7 @@ async function main() {
       candidateCount: ordered.length,
       primaryCount,
       newCount,
-      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis. `description` keeps the START and the END of the job ad; a long one has its MIDDLE replaced by '[… middle of description elided …]'. The end is preserved deliberately, because required years, language demands and work-authorization notes live there — so judge level/language/permit from the text AFTER the marker, and treat the marker as elided boilerplate, not as a missing requirement. TRIAGE ORDER: rows are sorted primary-region first, then by `fitScore`. `isNew` marks postings not present in the previous harvest and `newCount` counts them — work those FIRST. `priorVerdict`/`priorReason` carry a decision an agent already recorded in tracking/candidate_decisions.json: do NOT re-litigate a REJECTED row unless its title or description changed, and append your own new rejections to that file keyed by `key`. `tags` are deterministic hints, not verdicts — `developer-first`, `senior`, `ops-shaped`, `consultancy`, `language-bar` (German/French required), `contract` (external payroll), `weak-language` (C++/C#), `aggregator`. They rank the queue; the rubric still decides. `aggregator` rows come from a job board rather than an employer ATS: log them with linkStatus UNVERIFIED and a statusNote saying the employer-site link is unresolved, then upgrade the link when you find the employer's own posting."
+      note: "Live ATS-API candidates for the search agent to curate (rubric/dedupe/salary). Not yet filtered against roles[] — cross-check before logging. Sorted PRIMARY-REGION-FIRST (see primaryLocationFilters in ats_sources.json): the first `primaryCount` entries are in the candidate's top-tier target region; work those to exhaustion before the backup tier. `sourceReport[].allInternalIds` lists every requisition id fetched per source — an id present there but absent from candidates[] was FILTERED OUT (wrong city/title), NOT closed; do not archive on that basis. `description` keeps the START and the END of the job ad; a long one has its MIDDLE replaced by '[… middle of description elided …]'. The end is preserved deliberately, because required years, language demands and work-authorization notes live there — so judge level/language/permit from the text AFTER the marker, and treat the marker as elided boilerplate, not as a missing requirement. TRIAGE ORDER: rows are sorted primary-region first, then by `fitScore`. `isNew` marks postings not present in the previous harvest and `newCount` counts them — work those FIRST. `priorVerdict`/`priorReason` carry a decision an agent already recorded in tracking/candidate_decisions.json: do NOT re-litigate a REJECTED row unless its title or description changed, and append your own new rejections to that file keyed by `key`. `tags` are deterministic hints, not verdicts — `developer-first`, `senior`, `ops-shaped`, `consultancy`, `language-bar` (German/French required), `german-only` (ad written entirely in German with no explicit 'German not required' statement — EXCLUDE these per the rubric), `contract` (external payroll), `weak-language` (C++/C#), `aggregator`. They rank the queue; the rubric still decides. `aggregator` rows come from a job board rather than an employer ATS: log them with linkStatus UNVERIFIED and a statusNote saying the employer-site link is unresolved, then upgrade the link when you find the employer's own posting."
     },
     sourceReport,
     candidates: ordered

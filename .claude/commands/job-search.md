@@ -13,6 +13,7 @@ During the search:
 - Use current web data.
 - Prefer official employer career-site links.
 - Apply the language, sponsorship, seniority, and fit filters from `searchBrief` (no DevOps/infra/MLOps). Current-employer roles are in scope as standard external applications per `currentEmployerExclusion`.
+- Exclude postings whose ad is written entirely in German unless it explicitly says German is not required (e.g. "no German required", "Deutschkenntnisse nicht erforderlich") — the harvester tags these `german-only`.
 - Include approximate salary range and a critical fit verdict for every qualified role.
 - Store/display the internal position ID whenever available; write `not exposed` if no req/ATS/posting ID is visible.
 - Downgrade or exclude keyword matches that are under-leveled, likely unsponsored, weak on compensation, duplicate active applications, or recently rejected employers.

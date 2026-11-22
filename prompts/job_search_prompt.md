@@ -17,7 +17,8 @@ do not hard-code candidate details here.
 Roles at or above `searchBrief.levelFilter` in the candidate's `searchBrief.targetLocations`, in the
 role types listed in `searchBrief.targetRoles` (priority order). Exclude: below-level/graduate,
 roles whose primary language is one of `searchBrief.weakLanguages`, DevOps/SRE/infra/MLOps ops,
-research-scientist, mobile-only, and roles requiring a language the candidate lacks. Current-employer
+research-scientist, mobile-only, roles requiring a language the candidate lacks, and ads written
+entirely in German unless they explicitly say German is not required. Current-employer
 roles are in scope as standard external applications, but follow `currentEmployerExclusion`.
 
 ## Target Employers

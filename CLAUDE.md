@@ -111,4 +111,6 @@ with displayed status `APPLIED`, mapping each reply back to its role by permanen
   `currentEmployer`) are in scope as standard external applications, but follow
   `currentEmployerExclusion` — do not use its internal mobility platform and do not surface the
   candidate's own current role/team.
+- **German-only ads:** exclude postings written entirely in German unless the ad explicitly says
+  German is not required (see `workflows/search_session.md`).
 - Tailor cover letters to the role (e.g. trading systems for banks, AI/LLM for tech companies).
